@@ -28,7 +28,9 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
   const [errorMsg, setErrorMsg] = useState('');
   const [arkConfigured, setArkConfigured] = useState(true);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const [selectedRefImage, setSelectedRefImage] = useState<string | null>(null);
+  const [selectedRefImages, setSelectedRefImages] = useState<string[]>([]);
+  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
   // Auto-select product shot frame as reference image
   const productShots = useMemo(() => {
@@ -37,10 +39,39 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
 
   // Auto-select the first product shot as default reference
   useEffect(() => {
-    if (productShots.length > 0 && !selectedRefImage) {
-      setSelectedRefImage(productShots[0].thumbnailUrl);
+    if (productShots.length > 0 && selectedRefImages.length === 0 && uploadedImages.length === 0) {
+      setSelectedRefImages([productShots[0].thumbnailUrl]);
     }
-  }, [productShots, selectedRefImage]);
+  }, [productShots, selectedRefImages.length, uploadedImages.length]);
+
+  // Handle local image upload
+  const handleImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach(file => {
+      if (!file.type.startsWith('image/')) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        setUploadedImages(prev => [...prev, dataUrl]);
+        setSelectedRefImages(prev => [...prev, dataUrl]);
+      };
+      reader.readAsDataURL(file);
+    });
+    // Reset input so same file can be re-selected
+    e.target.value = '';
+  }, []);
+
+  const toggleRefImage = useCallback((img: string) => {
+    setSelectedRefImages(prev =>
+      prev.includes(img) ? prev.filter(i => i !== img) : [...prev, img]
+    );
+  }, []);
+
+  const removeUploadedImage = useCallback((img: string) => {
+    setUploadedImages(prev => prev.filter(i => i !== img));
+    setSelectedRefImages(prev => prev.filter(i => i !== img));
+  }, []);
 
   // Check API key configuration on mount
   useEffect(() => {
@@ -141,7 +172,7 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
           model,
           aspectRatio,
           duration,
-          referenceImageUrl: selectedRefImage || undefined,
+          referenceImageUrls: selectedRefImages.length > 0 ? selectedRefImages : undefined,
         }),
       });
 
@@ -332,63 +363,117 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
             </div>
           </div>
 
-          {/* Reference image for i2v mode */}
+          {/* Reference images for i2v mode */}
           <div>
             <h3 className="font-medium mb-2">产品参考图（图生视频模式）</h3>
             <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
-              选择原视频中的产品截图作为参考，AI 将基于此图保持产品外观一致
+              选择原视频截图或上传产品原图作为参考（可多选），AI 将基于参考图保持产品外观一致
             </p>
-            {productShots.length > 0 ? (
-              <div className="flex gap-2 flex-wrap">
-                {productShots.map((shot, i) => (
-                  <button
-                    key={shot.id}
-                    onClick={() => setSelectedRefImage(
-                      selectedRefImage === shot.thumbnailUrl ? null : shot.thumbnailUrl
-                    )}
-                    className="relative rounded-lg overflow-hidden transition-all"
-                    style={{
-                      border: `3px solid ${selectedRefImage === shot.thumbnailUrl ? 'var(--accent-purple)' : 'var(--border-color)'}`,
-                      opacity: selectedRefImage === shot.thumbnailUrl ? 1 : 0.6,
-                    }}
-                  >
-                    <img
-                      src={shot.thumbnailUrl}
-                      alt={`产品镜头 ${i + 1}`}
-                      className="w-20 h-20 object-cover"
-                    />
-                    {selectedRefImage === shot.thumbnailUrl && (
-                      <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(139,92,246,0.3)' }}>
-                        <span className="text-white text-lg">&#10003;</span>
-                      </div>
-                    )}
-                    <span className="absolute bottom-0 left-0 right-0 text-center text-xs py-0.5" style={{ background: 'rgba(0,0,0,0.6)', color: 'white' }}>
-                      {shot.type}
-                    </span>
-                  </button>
-                ))}
-                {selectedRefImage && (
-                  <button
-                    onClick={() => setSelectedRefImage(null)}
-                    className="w-20 h-20 rounded-lg flex items-center justify-center text-xs"
-                    style={{ background: 'var(--bg-secondary)', border: '1px dashed var(--border-color)', color: 'var(--text-secondary)' }}
-                  >
-                    不使用<br/>参考图
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="rounded-lg p-3" style={{ background: 'var(--bg-secondary)' }}>
-                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                  未找到产品镜头截图。将使用纯文本描述生成视频（产品外观可能不一致）
-                </p>
-              </div>
+
+            {/* Video frame shots */}
+            {productShots.length > 0 && (
+              <>
+                <p className="text-xs mb-2 font-medium" style={{ color: 'var(--text-secondary)' }}>原视频截图：</p>
+                <div className="flex gap-2 flex-wrap mb-3">
+                  {productShots.map((shot, i) => (
+                    <button
+                      key={shot.id}
+                      onClick={() => toggleRefImage(shot.thumbnailUrl)}
+                      className="relative rounded-lg overflow-hidden transition-all"
+                      style={{
+                        border: `3px solid ${selectedRefImages.includes(shot.thumbnailUrl) ? 'var(--accent-purple)' : 'var(--border-color)'}`,
+                        opacity: selectedRefImages.includes(shot.thumbnailUrl) ? 1 : 0.6,
+                      }}
+                    >
+                      <img
+                        src={shot.thumbnailUrl}
+                        alt={`产品镜头 ${i + 1}`}
+                        className="w-20 h-20 object-cover"
+                      />
+                      {selectedRefImages.includes(shot.thumbnailUrl) && (
+                        <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(139,92,246,0.3)' }}>
+                          <span className="text-white text-lg">&#10003;</span>
+                        </div>
+                      )}
+                      <span className="absolute bottom-0 left-0 right-0 text-center text-xs py-0.5" style={{ background: 'rgba(0,0,0,0.6)', color: 'white' }}>
+                        {shot.type}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
-            {selectedRefImage && (
+
+            {/* Uploaded images */}
+            {uploadedImages.length > 0 && (
+              <>
+                <p className="text-xs mb-2 font-medium" style={{ color: 'var(--text-secondary)' }}>已上传的产品图：</p>
+                <div className="flex gap-2 flex-wrap mb-3">
+                  {uploadedImages.map((img, i) => (
+                    <div key={i} className="relative">
+                      <button
+                        onClick={() => toggleRefImage(img)}
+                        className="relative rounded-lg overflow-hidden transition-all"
+                        style={{
+                          border: `3px solid ${selectedRefImages.includes(img) ? 'var(--accent-purple)' : 'var(--border-color)'}`,
+                          opacity: selectedRefImages.includes(img) ? 1 : 0.6,
+                        }}
+                      >
+                        <img
+                          src={img}
+                          alt={`上传图片 ${i + 1}`}
+                          className="w-20 h-20 object-cover"
+                        />
+                        {selectedRefImages.includes(img) && (
+                          <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(139,92,246,0.3)' }}>
+                            <span className="text-white text-lg">&#10003;</span>
+                          </div>
+                        )}
+                        <span className="absolute bottom-0 left-0 right-0 text-center text-xs py-0.5" style={{ background: 'rgba(0,0,0,0.6)', color: 'white' }}>
+                          上传
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => removeUploadedImage(img)}
+                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center text-xs text-white"
+                        style={{ background: '#ef4444' }}
+                      >
+                        &#10005;
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Upload button */}
+            <input
+              ref={uploadInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleImageUpload}
+              className="hidden"
+            />
+            <button
+              onClick={() => uploadInputRef.current?.click()}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer"
+              style={{ background: 'var(--bg-secondary)', border: '1px dashed var(--accent-purple)', color: 'var(--accent-purple)' }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              上传产品原图（可多张）
+            </button>
+
+            {/* Status indicator */}
+            {selectedRefImages.length > 0 && (
               <div className="mt-2 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full" style={{ background: '#22c55e' }} />
                 <span className="text-xs" style={{ color: '#22c55e' }}>
-                  已启用图生视频模式 — 产品外观将基于参考图保持一致
+                  已选择 {selectedRefImages.length} 张参考图 — 图生视频模式已启用
                 </span>
               </div>
             )}
@@ -435,7 +520,7 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
                 提交中...
               </span>
             ) : (
-              <span>✨ {selectedRefImage ? '图生视频' : '文生视频'}（即梦 Seedance）</span>
+              <span>✨ {selectedRefImages.length > 0 ? '图生视频' : '文生视频'}（即梦 Seedance）</span>
             )}
           </button>
 

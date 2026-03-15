@@ -232,37 +232,31 @@ export function convertSameProductToVideoScript(script: SameProductScript, produ
 }
 
 export function generateVideoPrompt(script: CrossCategoryScript, productAppearance?: VideoAnalysis['productAppearance']): string {
-  const productSection = productAppearance ? `## CRITICAL: Product Identity (DO NOT CHANGE)
-The product in this video must be EXACTLY the following - do NOT alter, replace, or substitute with any other product:
-- Product: ${productAppearance.name || script.productName}
-- Brand: ${productAppearance.brand}
-- Category: ${productAppearance.category}
-- Color: ${productAppearance.color}
-- Shape: ${productAppearance.shape}
-- Detailed appearance: ${productAppearance.detailedDescription}
-${productAppearance.distinguishingFeatures.length > 0 ? `- Key features: ${productAppearance.distinguishingFeatures.join('; ')}` : ''}
+  const productDesc = productAppearance
+    ? `${productAppearance.name}（${productAppearance.brand} ${productAppearance.category}，${productAppearance.color}，${productAppearance.shape}，${productAppearance.detailedDescription}）`
+    : script.productName;
 
-IMPORTANT: Only the person/model and scene/background should change. The product itself must remain identical in appearance, color, shape, brand, and all details.
+  return `## 核心要求：复刻原视频，仅替换人物和场景
+这是一个产品推广视频的复刻任务。请严格按照以下要求生成：
+1. 产品必须与参考图中的产品完全一致（外观、颜色、形状、品牌标识等）——不得替换为其他产品
+2. 仅替换视频中的人物/模特和拍摄场景/背景
+3. 视频的内容结构、镜头顺序、动作流程必须与原视频保持一致
+4. 模特与产品的互动方式（手持、展示、使用）必须与原视频一致
 
-` : '';
+## 产品信息（不可更改）
+${productDesc}
+${productAppearance?.distinguishingFeatures?.length ? `关键特征: ${productAppearance.distinguishingFeatures.join('；')}` : ''}
 
-  return `${productSection}## Video Style
-- Modern, sleek, eye-catching visuals
-- Professional lighting and composition
-- Dynamic camera movements and smooth transitions
-- Fast-paced editing suitable for social media (TikTok, Instagram Reels, YouTube Shorts)
-- Clean, minimalist aesthetic with product focus
-${productAppearance ? `- The product (${productAppearance.name}) must look exactly as described above - same color (${productAppearance.color}), same shape (${productAppearance.shape}), same brand` : ''}
+## 视频风格
+- 现代、简洁、吸睛的画面
+- 专业灯光和构图
+- 流畅的镜头运动和转场
+- 适合社交媒体的快节奏剪辑（TikTok, Instagram Reels, YouTube Shorts）
 
-## Audio Requirements
-- Background music: Upbeat, modern, suitable for social media
-- Voiceover: Professional English female voice, clear and engaging
-- Sound effects: Subtle product interaction sounds
-
-## Scene Breakdown
-${script.scenes.map((scene, i) => `Scene ${i + 1} (${scene.type}): ${scene.englishDescription}
-  - Visual: ${scene.recommendation || scene.chineseDescription}
-  - Voiceover: "${scene.title}"
-  - Text overlay: "${scene.hook}"${scene.type === '产品展示' && productAppearance ? `\n  - PRODUCT: Must show the exact ${productAppearance.name} (${productAppearance.color}, ${productAppearance.shape}) - do NOT substitute with a different product` : ''}`).join('\n\n')}
+## 场景分镜（严格按照原视频内容复刻）
+${script.scenes.map((scene, i) => `场景 ${i + 1}（${scene.type}）: ${scene.chineseDescription || scene.englishDescription}
+  - 画面: ${scene.recommendation || scene.chineseDescription}
+  - 旁白: "${scene.title}"
+  - 要求: 产品必须是${productAppearance?.name || script.productName}，与参考图一致`).join('\n\n')}
 `;
 }

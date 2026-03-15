@@ -4,7 +4,7 @@ const ARK_API_BASE = 'https://ark.cn-beijing.volces.com/api/v3';
 
 export async function POST(request: NextRequest) {
   try {
-    const { prompt, model, aspectRatio, duration, referenceImageUrl } = await request.json();
+    const { prompt, model, aspectRatio, duration, referenceImageUrls } = await request.json();
 
     const apiKey = process.env.ARK_API_KEY;
     if (!apiKey) {
@@ -24,7 +24,8 @@ export async function POST(request: NextRequest) {
     const fullPrompt = params.length > 0 ? `${prompt} ${params.join(' ')}` : prompt;
 
     // Determine if we should use i2v (image-to-video) or t2v (text-to-video)
-    const useI2V = !!referenceImageUrl;
+    const imageUrls: string[] = Array.isArray(referenceImageUrls) ? referenceImageUrls : [];
+    const useI2V = imageUrls.length > 0;
 
     // Select model ID based on user choice and mode
     let modelId: string;
@@ -48,17 +49,19 @@ export async function POST(request: NextRequest) {
       },
     ];
 
-    // Add reference image for i2v mode
-    if (useI2V && referenceImageUrl) {
-      content.push({
-        type: 'image_url',
-        image_url: {
-          url: referenceImageUrl,
-        },
-      });
+    // Add reference images for i2v mode (multiple images supported)
+    if (useI2V) {
+      for (const imgUrl of imageUrls) {
+        content.push({
+          type: 'image_url',
+          image_url: {
+            url: imgUrl,
+          },
+        });
+      }
     }
 
-    console.log(`Video generation mode: ${useI2V ? 'i2v (image-to-video)' : 't2v (text-to-video)'}, model: ${modelId}`);
+    console.log(`Video generation mode: ${useI2V ? `i2v (${imageUrls.length} images)` : 't2v (text-to-video)'}, model: ${modelId}`);
 
     const response = await fetch(`${ARK_API_BASE}/contents/generations/tasks`, {
       method: 'POST',
