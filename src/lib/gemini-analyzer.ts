@@ -93,6 +93,19 @@ function buildAnalysisPrompt(fileName: string, metadata: VideoMetadata): string 
 8. 请像一个月薪5万的资深短视频运营专家一样，给出真正有价值、可执行的专业洞察`;
 }
 
+function sanitizeJsonString(str: string): string {
+  // Remove trailing commas before } or ]
+  let result = str.replace(/,\s*([}\]])/g, '$1');
+  // Fix unescaped newlines inside string values
+  result = result.replace(/(?<=:\s*"[^"]*)\n(?=[^"]*")/g, '\\n');
+  // Remove control characters that break JSON
+  result = result.replace(/[\x00-\x1f\x7f]/g, (ch) => {
+    if (ch === '\n' || ch === '\r' || ch === '\t') return ch;
+    return '';
+  });
+  return result;
+}
+
 function parseGeminiResponse(text: string): Record<string, unknown> {
   let jsonStr = text.trim();
 
@@ -102,17 +115,56 @@ function parseGeminiResponse(text: string): Record<string, unknown> {
     jsonStr = jsonMatch[1].trim();
   }
 
+  // Extract JSON object boundaries
+  const startIdx = jsonStr.indexOf('{');
+  const endIdx = jsonStr.lastIndexOf('}');
+  if (startIdx !== -1 && endIdx !== -1) {
+    jsonStr = jsonStr.slice(startIdx, endIdx + 1);
+  }
+
+  // Try direct parse first
   try {
     return JSON.parse(jsonStr);
   } catch {
-    // Try to extract JSON object more aggressively
-    const startIdx = jsonStr.indexOf('{');
-    const endIdx = jsonStr.lastIndexOf('}');
-    if (startIdx !== -1 && endIdx !== -1) {
-      return JSON.parse(jsonStr.slice(startIdx, endIdx + 1));
+    // Try with sanitization
+  }
+
+  // Sanitize common LLM JSON issues and retry
+  const sanitized = sanitizeJsonString(jsonStr);
+  try {
+    return JSON.parse(sanitized);
+  } catch {
+    // Try more aggressive fix
+  }
+
+  // Last resort: try to fix truncated JSON by closing open brackets/braces
+  try {
+    let fixed = sanitized;
+    let openBraces = 0;
+    let openBrackets = 0;
+    let inString = false;
+    let escaped = false;
+    for (const ch of fixed) {
+      if (escaped) { escaped = false; continue; }
+      if (ch === '\\') { escaped = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === '{') openBraces++;
+      else if (ch === '}') openBraces--;
+      else if (ch === '[') openBrackets++;
+      else if (ch === ']') openBrackets--;
     }
-    console.error('Gemini raw response:', text.slice(0, 500));
-    throw new Error('无法解析 Gemini 返回的 JSON 数据');
+    // Close any unclosed strings/arrays/objects
+    if (inString) fixed += '"';
+    while (openBrackets > 0) { fixed += ']'; openBrackets--; }
+    while (openBraces > 0) { fixed += '}'; openBraces--; }
+    // Remove trailing commas again after fixes
+    fixed = fixed.replace(/,\s*([}\]])/g, '$1');
+    return JSON.parse(fixed);
+  } catch (e) {
+    console.error('Gemini raw response (first 1000 chars):', text.slice(0, 1000));
+    console.error('Parse error:', e);
+    throw new Error('无法解析 Gemini 返回的 JSON 数据，请重试');
   }
 }
 
