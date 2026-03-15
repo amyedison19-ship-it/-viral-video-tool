@@ -1,7 +1,7 @@
-import { GoogleGenAI, createUserContent, createPartFromUri } from '@google/genai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleAIFileManager, FileState } from '@google/generative-ai/server';
 import { VideoMetadata } from './video-processing';
 import { VideoAnalysis, Shot, ShotType } from './types';
-import fs from 'fs';
 import path from 'path';
 
 const VALID_SHOT_TYPES: ShotType[] = ['痛点放大', '产品展示', '使用场景', '效果对比', '行动引导', '开头钩子', '信任背书', '其他'];
@@ -11,9 +11,6 @@ function normalizeShotType(type: string): ShotType {
   return '其他';
 }
 
-/**
- * Get the MIME type from file extension
- */
 function getMimeType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
   const mimeMap: Record<string, string> = {
@@ -27,41 +24,47 @@ function getMimeType(filePath: string): string {
 }
 
 /**
- * Upload video to Gemini Files API and wait for it to become ACTIVE
+ * Upload video to Gemini Files API and wait for processing to complete
  */
-async function uploadVideoToGemini(
-  ai: GoogleGenAI,
+async function uploadAndWaitForVideo(
+  fileManager: GoogleAIFileManager,
   videoPath: string,
-): Promise<{ uri: string; mimeType: string }> {
+  fileName: string,
+): Promise<{ fileUri: string; mimeType: string }> {
   const mimeType = getMimeType(videoPath);
 
-  // Upload via the Files API
-  const uploadResult = await ai.files.upload({
-    file: videoPath,
-    config: { mimeType },
+  // Upload the video file
+  const uploadResult = await fileManager.uploadFile(videoPath, {
+    mimeType,
+    displayName: fileName,
   });
 
-  if (!uploadResult.uri || !uploadResult.name) {
-    throw new Error('文件上传失败：未返回文件 URI');
+  const file = uploadResult.file;
+  if (!file.uri || !file.name) {
+    throw new Error('文件上传失败：未返回文件信息');
   }
 
-  // Poll until file is ACTIVE (video processing takes time)
-  let file = uploadResult;
+  // Poll until the video is processed (state becomes ACTIVE)
+  // getFile returns FileMetadataResponse directly
   const maxWait = 120_000; // 2 minutes max
   const pollInterval = 3_000;
   let waited = 0;
+  let currentFile = file;
 
-  while (file.state === 'PROCESSING' && waited < maxWait) {
+  while (currentFile.state === FileState.PROCESSING && waited < maxWait) {
     await new Promise(resolve => setTimeout(resolve, pollInterval));
     waited += pollInterval;
-    file = await ai.files.get({ name: file.name! });
+    currentFile = await fileManager.getFile(file.name);
   }
 
-  if (file.state !== 'ACTIVE') {
-    throw new Error(`视频处理超时或失败，状态: ${file.state}`);
+  if (currentFile.state === FileState.FAILED) {
+    throw new Error('视频处理失败，请检查视频文件格式');
+  }
+  if (currentFile.state !== FileState.ACTIVE) {
+    throw new Error(`视频处理超时，当前状态: ${currentFile.state}`);
   }
 
-  return { uri: file.uri!, mimeType };
+  return { fileUri: currentFile.uri, mimeType };
 }
 
 /**
@@ -74,13 +77,14 @@ export async function analyzeVideoWithGemini(
 ): Promise<VideoAnalysis> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error('GEMINI_API_KEY environment variable is not set. Please set it in your .env file.');
+    throw new Error('GEMINI_API_KEY 未设置。请在 .env 文件中配置 GEMINI_API_KEY。');
   }
 
-  const ai = new GoogleGenAI({ apiKey });
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const fileManager = new GoogleAIFileManager(apiKey);
 
   // Step 1: Upload video to Gemini Files API
-  const { uri, mimeType } = await uploadVideoToGemini(ai, videoPath);
+  const { fileUri, mimeType } = await uploadAndWaitForVideo(fileManager, videoPath, fileName);
 
   // Step 2: Build the analysis prompt
   const analysisPrompt = `你是一个资深短视频营销专家和爆款内容分析师。请对这个短视频进行全面的拆解分析。
@@ -164,20 +168,25 @@ export async function analyzeVideoWithGemini(
 7. 请像一个月薪5万的资深短视频运营专家一样，给出真正有价值、可执行的专业洞察`;
 
   // Step 3: Call Gemini generateContent with the uploaded video
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: createUserContent([
-      createPartFromUri(uri, mimeType),
-      analysisPrompt,
-    ]),
-  });
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
-  // Step 4: Parse the response
-  const text = response.text;
+  const result = await model.generateContent([
+    {
+      fileData: {
+        mimeType,
+        fileUri,
+      },
+    },
+    { text: analysisPrompt },
+  ]);
+
+  const response = result.response;
+  const text = response.text();
   if (!text) {
     throw new Error('Gemini 未返回分析结果');
   }
 
+  // Step 4: Parse JSON from response
   let jsonStr = text.trim();
   // Strip markdown code block if present
   const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -195,6 +204,7 @@ export async function analyzeVideoWithGemini(
     if (startIdx !== -1 && endIdx !== -1) {
       parsed = JSON.parse(jsonStr.slice(startIdx, endIdx + 1));
     } else {
+      console.error('Gemini raw response:', text.slice(0, 500));
       throw new Error('无法解析 Gemini 返回的 JSON 数据');
     }
   }
@@ -220,14 +230,11 @@ export async function analyzeVideoWithGemini(
     ? Math.round((productExposureDuration / metadata.duration) * 100)
     : 0;
 
-  // Step 6: Clean up the uploaded file from Gemini (best effort)
+  // Step 6: Clean up uploaded file from Gemini (best effort)
   try {
-    const files = await ai.files.list();
-    for await (const f of files) {
-      if (f.uri === uri && f.name) {
-        await ai.files.delete({ name: f.name });
-        break;
-      }
+    const uploadedFile = await fileManager.getFile(fileUri.split('/').pop()!);
+    if (uploadedFile.name) {
+      await fileManager.deleteFile(uploadedFile.name);
     }
   } catch {
     // ignore cleanup errors

@@ -6,8 +6,7 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '100mb',
     },
   },
-  // Allow longer API responses for Claude analysis
-  serverExternalPackages: ['fluent-ffmpeg'],
+  serverExternalPackages: ['fluent-ffmpeg', '@google/generative-ai'],
 };
 
 export default nextConfig;

@@ -54,15 +54,24 @@ export default function Home() {
 
       clearInterval(interval);
 
+      // Check content-type before parsing as JSON
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await response.text();
+        console.error('Non-JSON response:', response.status, text.slice(0, 200));
+        throw new Error(`服务器返回了非 JSON 响应 (${response.status})，请检查服务端配置`);
+      }
+
+      const data = await response.json();
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || '分析失败，请重试');
+        throw new Error(data.error || '分析失败，请重试');
       }
 
       setProgress(95);
       setStatusText('正在生成分析报告...');
 
-      const result: VideoAnalysis = await response.json();
+      const result: VideoAnalysis = data;
 
       setProgress(100);
       await new Promise(resolve => setTimeout(resolve, 300));
