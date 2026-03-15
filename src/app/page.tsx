@@ -49,26 +49,40 @@ export default function Home() {
     setErrorMsg('');
     setStatusText('正在读取视频信息...');
 
+    let step = '读取视频信息';
     try {
       // Step 0: Get video metadata from browser
       const metadata = await getVideoMetadata(file);
       setProgress(5);
 
       // Step 1: Init resumable upload (small JSON, no size limit issues)
+      step = '初始化上传';
       setStatusText('正在初始化上传...');
-      const initRes = await fetch('/api/init-upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileName: file.name,
-          fileSize: file.size,
-          mimeType: file.type || 'video/mp4',
-        }),
-      });
+      let initRes: Response;
+      try {
+        initRes = await fetch('/api/init-upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileName: file.name,
+            fileSize: file.size,
+            mimeType: file.type || 'video/mp4',
+          }),
+        });
+      } catch (fetchErr) {
+        throw new Error(`初始化上传请求失败: ${fetchErr instanceof Error ? fetchErr.message : '网络错误'}`);
+      }
 
       if (!initRes.ok) {
-        const initData = await initRes.json().catch(() => ({ error: '初始化上传失败' }));
-        throw new Error(initData.error || '初始化上传失败');
+        const ct = initRes.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          const initData = await initRes.json();
+          throw new Error(initData.error || `初始化上传失败 (${initRes.status})`);
+        } else {
+          const text = await initRes.text();
+          console.error('init-upload non-JSON:', initRes.status, text.slice(0, 300));
+          throw new Error(`初始化上传失败 (${initRes.status})，服务端返回非JSON`);
+        }
       }
 
       const { uploadUrl } = await initRes.json();
@@ -77,6 +91,7 @@ export default function Home() {
       setProgress(10);
 
       // Step 2: Upload video in chunks through our proxy (avoids CORS + Vercel size limit)
+      step = '上传视频';
       setStatusText('正在上传视频...');
       const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB chunks to stay under Vercel's 4.5MB limit
       let offset = 0;
@@ -87,19 +102,24 @@ export default function Home() {
         const chunk = file.slice(offset, end);
         const isLast = end >= file.size;
 
-        const chunkRes = await fetch('/api/upload-chunk', {
-          method: 'POST',
-          headers: {
-            'x-upload-url': uploadUrl,
-            'x-upload-offset': String(offset),
-            'x-upload-command': isLast ? 'upload, finalize' : 'upload',
-          },
-          body: chunk,
-        });
+        let chunkRes: Response;
+        try {
+          chunkRes = await fetch('/api/upload-chunk', {
+            method: 'POST',
+            headers: {
+              'x-upload-url': uploadUrl,
+              'x-upload-offset': String(offset),
+              'x-upload-command': isLast ? 'upload, finalize' : 'upload',
+            },
+            body: chunk,
+          });
+        } catch (fetchErr) {
+          throw new Error(`上传块失败 (offset=${offset}): ${fetchErr instanceof Error ? fetchErr.message : '网络错误'}`);
+        }
 
         if (!chunkRes.ok) {
-          const chunkErr = await chunkRes.json().catch(() => ({ error: '上传失败' }));
-          throw new Error(chunkErr.error || '视频上传失败');
+          const chunkErr = await chunkRes.json().catch(() => ({ error: `上传失败 (${chunkRes.status})` }));
+          throw new Error(chunkErr.error || `视频上传失败 (${chunkRes.status})`);
         }
 
         if (isLast) {
@@ -121,6 +141,7 @@ export default function Home() {
       setProgress(50);
 
       // Step 3: Call analyze API with file URI (small JSON body)
+      step = 'AI分析';
       setStatusText('Gemini AI 正在分析视频内容...');
 
       // Animate progress during analysis
@@ -131,18 +152,24 @@ export default function Home() {
         setProgress(currentProgress);
       }, 500);
 
-      const analyzeRes = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileUri,
-          mimeType: file.type || 'video/mp4',
-          fileName: file.name,
-          duration: metadata.duration,
-          width: metadata.width,
-          height: metadata.height,
-        }),
-      });
+      let analyzeRes: Response;
+      try {
+        analyzeRes = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileUri,
+            mimeType: file.type || 'video/mp4',
+            fileName: file.name,
+            duration: metadata.duration,
+            width: metadata.width,
+            height: metadata.height,
+          }),
+        });
+      } catch (fetchErr) {
+        clearInterval(interval);
+        throw new Error(`分析请求失败: ${fetchErr instanceof Error ? fetchErr.message : '网络错误'}`);
+      }
 
       clearInterval(interval);
 
@@ -150,7 +177,7 @@ export default function Home() {
       if (!contentType.includes('application/json')) {
         const text = await analyzeRes.text();
         console.error('Non-JSON response:', analyzeRes.status, text.slice(0, 200));
-        throw new Error(`服务器返回了非 JSON 响应 (${analyzeRes.status})，请检查服务端配置`);
+        throw new Error(`分析接口返回非JSON (${analyzeRes.status})，请检查环境变量配置`);
       }
 
       const data = await analyzeRes.json();
@@ -170,7 +197,7 @@ export default function Home() {
       setAnalysis(result);
     } catch (error) {
       const msg = error instanceof Error ? error.message : '分析失败，请重试';
-      setErrorMsg(msg);
+      setErrorMsg(`[${step}] ${msg}`);
     } finally {
       setIsAnalyzing(false);
     }
