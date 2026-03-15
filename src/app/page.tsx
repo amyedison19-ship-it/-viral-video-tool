@@ -34,6 +34,54 @@ export default function Home() {
     });
   }, []);
 
+  // Capture a single frame from video at a given time
+  const captureFrame = useCallback((videoEl: HTMLVideoElement, time: number): Promise<string> => {
+    return new Promise((resolve) => {
+      videoEl.currentTime = time;
+      videoEl.onseeked = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = videoEl.videoWidth;
+        canvas.height = videoEl.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(videoEl, 0, 0);
+          resolve(canvas.toDataURL('image/jpeg', 0.7));
+        } else {
+          resolve('');
+        }
+      };
+    });
+  }, []);
+
+  // Capture frames for all shots from video file
+  const captureAllFrames = useCallback(async (file: File, shots: VideoAnalysis['shots']): Promise<string[]> => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.preload = 'auto';
+      video.muted = true;
+      video.playsInline = true;
+      const url = URL.createObjectURL(file);
+      video.src = url;
+      video.onloadeddata = async () => {
+        const frames: string[] = [];
+        for (const shot of shots) {
+          try {
+            const frame = await captureFrame(video, shot.startTime);
+            frames.push(frame);
+          } catch {
+            frames.push('');
+          }
+        }
+        URL.revokeObjectURL(url);
+        resolve(frames);
+      };
+      video.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(shots.map(() => ''));
+      };
+    });
+  }, [captureFrame]);
+
   const handleFileSelect = useCallback(async (file: File) => {
     if (!file.type.startsWith('video/')) {
       alert('请选择视频文件');
@@ -186,12 +234,20 @@ export default function Home() {
         throw new Error(data.error || '分析失败，请重试');
       }
 
-      setProgress(95);
-      setStatusText('正在生成分析报告...');
+      setProgress(92);
+      setStatusText('正在截取视频帧...');
 
       const result: VideoAnalysis = data;
 
+      // Capture frames from video for each shot
+      const frames = await captureAllFrames(file, result.shots);
+      result.shots = result.shots.map((shot, i) => ({
+        ...shot,
+        thumbnailUrl: frames[i] || shot.thumbnailUrl,
+      }));
+
       setProgress(100);
+      setStatusText('正在生成分析报告...');
       await new Promise(resolve => setTimeout(resolve, 300));
 
       setAnalysis(result);
@@ -201,7 +257,7 @@ export default function Home() {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [getVideoMetadata]);
+  }, [getVideoMetadata, captureAllFrames]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
