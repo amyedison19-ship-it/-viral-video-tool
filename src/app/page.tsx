@@ -88,8 +88,8 @@ export default function Home() {
       alert('请选择视频文件');
       return;
     }
-    if (file.size > 100 * 1024 * 1024) {
-      alert('文件大小不能超过100MB');
+    if (file.size > 4.4 * 1024 * 1024) {
+      alert('文件大小不能超过 4.4MB（Vercel 部署限制）');
       return;
     }
 
@@ -140,59 +140,36 @@ export default function Home() {
 
       setProgress(10);
 
-      // Step 2: Upload video directly to Gemini (browser → Google, bypasses Vercel size limit)
+      // Step 2: Upload entire video as a single chunk via server proxy
+      // Sending as "upload, finalize" (last/only chunk) has no 8MB granularity restriction
       step = '上传视频';
       setStatusText('正在上传视频...');
+      setProgress(15);
 
-      // Gemini resumable upload requires chunks to be multiples of 8MB (8388608 bytes)
-      const CHUNK_GRANULARITY = 8 * 1024 * 1024; // 8MB
-      let offset = 0;
-      let uploadData: Record<string, unknown> | null = null;
-
-      while (offset < file.size) {
-        const isLast = offset + CHUNK_GRANULARITY >= file.size;
-        const end = isLast ? file.size : offset + CHUNK_GRANULARITY;
-        const chunk = file.slice(offset, end);
-
-        let chunkRes: Response | null = null;
-        let lastChunkErr = '';
-
-        // Retry each chunk up to 2 times
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try {
-            chunkRes = await fetch(uploadUrl, {
-              method: 'PUT',
-              headers: {
-                'Content-Length': String(end - offset),
-                'X-Goog-Upload-Offset': String(offset),
-                'X-Goog-Upload-Command': isLast ? 'upload, finalize' : 'upload',
-              },
-              body: chunk,
-            });
-            if (chunkRes.ok || chunkRes.status === 200) break;
-            const errText = await chunkRes.text().catch(() => '');
-            lastChunkErr = `上传失败 (${chunkRes.status}): ${errText.slice(0, 200)}`;
-            if (chunkRes.status !== 500 && chunkRes.status !== 503) break;
-          } catch (fetchErr) {
-            lastChunkErr = `上传块失败: ${fetchErr instanceof Error ? fetchErr.message : '网络错误'}`;
-          }
-          if (attempt < 1) await new Promise(r => setTimeout(r, 1000));
-        }
-
-        if (!chunkRes || (!chunkRes.ok && chunkRes.status !== 200)) {
-          throw new Error(lastChunkErr || '视频上传失败');
-        }
-
-        if (isLast) {
-          uploadData = await chunkRes.json();
-        }
-
-        offset = end;
-        const uploadProgress = 10 + (offset / file.size) * 40; // 10% → 50%
-        setProgress(uploadProgress);
-        setStatusText(`正在上传视频... ${Math.round((offset / file.size) * 100)}%`);
+      let uploadRes: Response;
+      try {
+        uploadRes = await fetch('/api/upload-chunk', {
+          method: 'POST',
+          headers: {
+            'x-upload-url': uploadUrl,
+            'x-upload-offset': '0',
+            'x-upload-command': 'upload, finalize',
+          },
+          body: file,
+        });
+      } catch (fetchErr) {
+        throw new Error(`上传请求失败: ${fetchErr instanceof Error ? fetchErr.message : '网络错误'}`);
       }
 
+      if (!uploadRes.ok) {
+        const errData = await uploadRes.json().catch(() => ({ error: `上传失败 (${uploadRes.status})` }));
+        throw new Error(errData.error || `视频上传失败 (${uploadRes.status})`);
+      }
+
+      setProgress(45);
+      setStatusText('上传完成，准备分析...');
+
+      const uploadData = await uploadRes.json();
       const fileUri = (uploadData as Record<string, Record<string, string>>)?.file?.uri;
       if (!fileUri) {
         console.error('Upload response:', JSON.stringify(uploadData).slice(0, 500));
@@ -338,7 +315,7 @@ export default function Home() {
               </div>
               <p className="text-lg mb-2">拖拽视频到这里，或点击上传</p>
               <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                支持 MP4, MOV, AVI, WebM 格式，最大 100MB
+                支持 MP4, MOV, AVI, WebM 格式，最大 4.4MB
               </p>
             </>
           )}
