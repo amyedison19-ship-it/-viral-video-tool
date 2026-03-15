@@ -222,7 +222,22 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
                 {generatedVideos.map((v, i) => (
                   <div key={i} className="flex items-center justify-between p-3 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
                     <span className="text-sm">🎬 {v}</span>
-                    <button className="text-xs px-3 py-1 rounded" style={{ background: 'var(--accent-blue)' }}>
+                    <button
+                      className="text-xs px-3 py-1.5 rounded cursor-pointer hover:opacity-80 transition-colors text-white"
+                      style={{ background: 'var(--accent-blue)' }}
+                      onClick={() => {
+                        // Create a mock download - in production this would be a real video URL
+                        const blob = new Blob(['Mock video content'], { type: 'video/mp4' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = v;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                      }}
+                    >
                       下载
                     </button>
                   </div>

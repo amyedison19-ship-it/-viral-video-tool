@@ -16,8 +16,19 @@ const SCENARIO_PRESETS = [
   { label: '街拍场景', value: '街拍' },
 ];
 
+const CHARACTER_PRESETS = [
+  { label: '不换人物', value: '', description: '保持原视频人物' },
+  { label: '年轻女性', value: '年轻女性', description: '20-30岁，时尚活力' },
+  { label: '年轻男性', value: '年轻男性', description: '20-30岁，阳光帅气' },
+  { label: '职场白领', value: '职场白领', description: '专业干练，商务风格' },
+  { label: '家庭主妇/主夫', value: '家庭主妇/主夫', description: '温馨居家，亲和力强' },
+  { label: '学生', value: '学生', description: '青春活泼，校园风格' },
+];
+
 export default function SameProductTab({ analysis, onScriptGenerated }: Props) {
   const [scenario, setScenario] = useState('');
+  const [character, setCharacter] = useState('');
+  const [customCharacter, setCustomCharacter] = useState('');
   const [adaptedScript, setAdaptedScript] = useState<SameProductScript | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
@@ -32,6 +43,7 @@ export default function SameProductTab({ analysis, onScriptGenerated }: Props) {
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     // Generate adapted script based on original analysis
+    const selectedCharacter = character || customCharacter;
     const scenes = analysis.shots.map((shot) => {
       const scenarioTips: Record<string, string> = {
         '户外': '选择自然光充足的户外环境，利用环境元素增强真实感',
@@ -39,18 +51,22 @@ export default function SameProductTab({ analysis, onScriptGenerated }: Props) {
         '家居': '在温馨的家庭环境中拍摄，营造生活化氛围',
         '街拍': '在城市街头拍摄，增加时尚感和随性感',
       };
-      const tip = scenarioTips[scenario] || `在${scenario}场景下拍摄，保持原视频的节奏和构图`;
+      let tip = scenarioTips[scenario] || `在${scenario}场景下拍摄，保持原视频的节奏和构图`;
+      if (selectedCharacter) {
+        tip += `；模特选择：${selectedCharacter}，注意表现自然真实`;
+      }
 
       return {
         type: shot.type as ShotType,
         originalDescription: shot.description,
-        newDescription: generateNewDescription(shot.type, shot.description, scenario),
+        newDescription: generateNewDescription(shot.type, shot.description, scenario, selectedCharacter),
         narration: shot.narration,
         shootingTip: tip,
       };
     });
 
-    const newScript = { scenarioName: scenario, scenes };
+    const scriptName = selectedCharacter ? `${scenario} + ${selectedCharacter}` : scenario;
+    const newScript = { scenarioName: scriptName, scenes };
     setAdaptedScript(newScript);
     onScriptGenerated?.(newScript);
     setIsGenerating(false);
@@ -73,7 +89,7 @@ export default function SameProductTab({ analysis, onScriptGenerated }: Props) {
         <span>🔁</span> 同品复刻
       </h2>
       <p className="text-sm mb-6" style={{ color: 'var(--text-secondary)' }}>
-        保持相同的产品和视频结构，仅更换拍摄场景，快速复刻爆款视频
+        保持相同的产品和视频结构，更换拍摄场景和人物模特，快速复刻爆款视频
       </p>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -138,23 +154,75 @@ export default function SameProductTab({ analysis, onScriptGenerated }: Props) {
           </div>
 
           {/* Custom scenario input */}
-          <div className="flex gap-2 mb-6">
+          <div className="mb-6">
             <input
               type="text"
               value={scenario}
               onChange={(e) => setScenario(e.target.value)}
               placeholder="或输入自定义场景，如：健身房、咖啡厅、旅行..."
-              className="flex-1 px-4 py-2 rounded-lg text-sm outline-none"
+              className="w-full px-4 py-2 rounded-lg text-sm outline-none"
               style={{
                 background: 'var(--bg-card)',
                 border: '1px solid var(--border-color)',
                 color: 'var(--text-primary)',
               }}
             />
+          </div>
+
+          {/* Character/Model selection */}
+          <div className="flex items-center gap-2 mb-4">
+            <span>👤</span>
+            <span className="text-sm font-medium">更换人物模特</span>
+            <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)' }}>
+              可选
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-2 mb-3">
+            {CHARACTER_PRESETS.map((preset) => (
+              <button
+                key={preset.value}
+                className="px-3 py-1.5 rounded-full text-xs font-medium transition-all"
+                style={{
+                  background: character === preset.value ? 'var(--accent-purple, #8b5cf6)' : 'var(--bg-card)',
+                  color: character === preset.value ? 'white' : 'var(--text-secondary)',
+                  border: `1px solid ${character === preset.value ? 'var(--accent-purple, #8b5cf6)' : 'var(--border-color)'}`,
+                }}
+                onClick={() => {
+                  setCharacter(preset.value);
+                  if (preset.value) setCustomCharacter('');
+                }}
+                title={preset.description}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="mb-6">
+            <input
+              type="text"
+              value={customCharacter}
+              onChange={(e) => {
+                setCustomCharacter(e.target.value);
+                if (e.target.value) setCharacter('');
+              }}
+              placeholder="或输入自定义人物描述，如：中年商务男性、运动风格女生..."
+              className="w-full px-4 py-2 rounded-lg text-sm outline-none"
+              style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-color)',
+                color: 'var(--text-primary)',
+              }}
+            />
+          </div>
+
+          {/* Generate button */}
+          <div className="mb-6">
             <button
               onClick={handleGenerate}
               disabled={isGenerating}
-              className="px-4 py-2 rounded-lg text-sm font-medium text-white shrink-0"
+              className="w-full px-4 py-3 rounded-lg text-sm font-medium text-white"
               style={{ background: 'var(--accent-blue)' }}
             >
               {isGenerating ? '生成中...' : '生成复刻脚本'}
@@ -243,7 +311,7 @@ export default function SameProductTab({ analysis, onScriptGenerated }: Props) {
   );
 }
 
-function generateNewDescription(type: string, original: string, scenario: string): string {
+function generateNewDescription(type: string, original: string, scenario: string, character?: string): string {
   const scenarioMap: Record<string, Record<string, string>> = {
     '户外': {
       '开头钩子': `在户外自然光下，`,
@@ -284,5 +352,12 @@ function generateNewDescription(type: string, original: string, scenario: string
   };
 
   const prefix = scenarioMap[scenario]?.[type] || `在${scenario}场景中，`;
-  return prefix + original;
+  let result = prefix + original;
+  if (character) {
+    result = result.replace(/一只手|手|一个人|一位|某人/g, `${character}`);
+    if (!result.includes(character)) {
+      result += `（由${character}出镜演示）`;
+    }
+  }
+  return result;
 }
