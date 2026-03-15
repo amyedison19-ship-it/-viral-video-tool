@@ -219,6 +219,37 @@ function buildVideoAnalysis(
 }
 
 /**
+ * Wait for a Gemini file to become ACTIVE (processing complete).
+ * Files go through PROCESSING → ACTIVE after upload.
+ */
+async function waitForFileActive(fileUri: string, apiKey: string, maxWaitMs = 120000): Promise<void> {
+  // Extract file name from URI like "https://generativelanguage.googleapis.com/v1beta/files/abc123"
+  const fileNameMatch = fileUri.match(/files\/([^/]+)$/);
+  if (!fileNameMatch) return; // Can't poll, just try to use it
+
+  const fileName = fileNameMatch[1];
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < maxWaitMs) {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/files/${fileName}?key=${apiKey}`
+    );
+
+    if (res.ok) {
+      const data = await res.json();
+      const state = data.state || data.file?.state;
+      if (state === 'ACTIVE') return;
+      if (state === 'FAILED') throw new Error('Gemini 文件处理失败，请重新上传');
+    }
+
+    // Wait 2 seconds before polling again
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+
+  throw new Error('等待文件处理超时，请重试');
+}
+
+/**
  * Analyze a video using a Gemini file URI (video already uploaded to Gemini by client).
  * This is the main function used for Vercel-compatible deployment.
  */
@@ -232,6 +263,9 @@ export async function analyzeWithGeminiByUri(
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY 未设置。请在 .env 文件中配置 GEMINI_API_KEY。');
   }
+
+  // Wait for file to finish processing before analyzing
+  await waitForFileActive(fileUri, apiKey);
 
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
