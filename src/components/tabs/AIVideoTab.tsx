@@ -28,6 +28,19 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
   const [errorMsg, setErrorMsg] = useState('');
   const [arkConfigured, setArkConfigured] = useState(true);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [selectedRefImage, setSelectedRefImage] = useState<string | null>(null);
+
+  // Auto-select product shot frame as reference image
+  const productShots = useMemo(() => {
+    return analysis.shots.filter(s => s.hasProduct && s.thumbnailUrl && s.thumbnailUrl.startsWith('data:'));
+  }, [analysis.shots]);
+
+  // Auto-select the first product shot as default reference
+  useEffect(() => {
+    if (productShots.length > 0 && !selectedRefImage) {
+      setSelectedRefImage(productShots[0].thumbnailUrl);
+    }
+  }, [productShots, selectedRefImage]);
 
   // Check API key configuration on mount
   useEffect(() => {
@@ -128,6 +141,7 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
           model,
           aspectRatio,
           duration,
+          referenceImageUrl: selectedRefImage || undefined,
         }),
       });
 
@@ -318,6 +332,76 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
             </div>
           </div>
 
+          {/* Reference image for i2v mode */}
+          <div>
+            <h3 className="font-medium mb-2">产品参考图（图生视频模式）</h3>
+            <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
+              选择原视频中的产品截图作为参考，AI 将基于此图保持产品外观一致
+            </p>
+            {productShots.length > 0 ? (
+              <div className="flex gap-2 flex-wrap">
+                {productShots.map((shot, i) => (
+                  <button
+                    key={shot.id}
+                    onClick={() => setSelectedRefImage(
+                      selectedRefImage === shot.thumbnailUrl ? null : shot.thumbnailUrl
+                    )}
+                    className="relative rounded-lg overflow-hidden transition-all"
+                    style={{
+                      border: `3px solid ${selectedRefImage === shot.thumbnailUrl ? 'var(--accent-purple)' : 'var(--border-color)'}`,
+                      opacity: selectedRefImage === shot.thumbnailUrl ? 1 : 0.6,
+                    }}
+                  >
+                    <img
+                      src={shot.thumbnailUrl}
+                      alt={`产品镜头 ${i + 1}`}
+                      className="w-20 h-20 object-cover"
+                    />
+                    {selectedRefImage === shot.thumbnailUrl && (
+                      <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(139,92,246,0.3)' }}>
+                        <span className="text-white text-lg">&#10003;</span>
+                      </div>
+                    )}
+                    <span className="absolute bottom-0 left-0 right-0 text-center text-xs py-0.5" style={{ background: 'rgba(0,0,0,0.6)', color: 'white' }}>
+                      {shot.type}
+                    </span>
+                  </button>
+                ))}
+                {selectedRefImage && (
+                  <button
+                    onClick={() => setSelectedRefImage(null)}
+                    className="w-20 h-20 rounded-lg flex items-center justify-center text-xs"
+                    style={{ background: 'var(--bg-secondary)', border: '1px dashed var(--border-color)', color: 'var(--text-secondary)' }}
+                  >
+                    不使用<br/>参考图
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-lg p-3" style={{ background: 'var(--bg-secondary)' }}>
+                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  未找到产品镜头截图。将使用纯文本描述生成视频（产品外观可能不一致）
+                </p>
+              </div>
+            )}
+            {selectedRefImage && (
+              <div className="mt-2 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full" style={{ background: '#22c55e' }} />
+                <span className="text-xs" style={{ color: '#22c55e' }}>
+                  已启用图生视频模式 — 产品外观将基于参考图保持一致
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Audio notice */}
+          <div className="rounded-lg p-3 flex items-start gap-2" style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)' }}>
+            <span style={{ color: '#3b82f6' }}>&#9432;</span>
+            <span className="text-xs" style={{ color: '#93c5fd' }}>
+              Seedance 生成的视频<strong>不含音频</strong>（无人声、无背景音乐）。如需配音，建议使用剪映、CapCut 等工具后期添加语音和音乐。
+            </span>
+          </div>
+
           {/* Config warning */}
           {!arkConfigured && (
             <div className="rounded-lg p-3 flex items-center gap-2" style={{ background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)' }}>
@@ -351,7 +435,7 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
                 提交中...
               </span>
             ) : (
-              <span>✨ 生成短视频（即梦 Seedance）</span>
+              <span>✨ {selectedRefImage ? '图生视频' : '文生视频'}（即梦 Seedance）</span>
             )}
           </button>
 

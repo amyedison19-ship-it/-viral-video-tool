@@ -4,7 +4,7 @@ const ARK_API_BASE = 'https://ark.cn-beijing.volces.com/api/v3';
 
 export async function POST(request: NextRequest) {
   try {
-    const { prompt, model, aspectRatio, duration } = await request.json();
+    const { prompt, model, aspectRatio, duration, referenceImageUrl } = await request.json();
 
     const apiKey = process.env.ARK_API_KEY;
     if (!apiKey) {
@@ -23,10 +23,42 @@ export async function POST(request: NextRequest) {
 
     const fullPrompt = params.length > 0 ? `${prompt} ${params.join(' ')}` : prompt;
 
-    // Select model ID based on user choice
-    const modelId = model === 'quality'
-      ? 'doubao-seedance-1-0-pro-250428'
-      : 'doubao-seedance-1-0-lite-t2v-250428';
+    // Determine if we should use i2v (image-to-video) or t2v (text-to-video)
+    const useI2V = !!referenceImageUrl;
+
+    // Select model ID based on user choice and mode
+    let modelId: string;
+    if (useI2V) {
+      // Image-to-video models
+      modelId = model === 'quality'
+        ? 'doubao-seedance-1-0-pro-i2v-250528'
+        : 'doubao-seedance-1-0-lite-i2v-250428';
+    } else {
+      // Text-to-video models
+      modelId = model === 'quality'
+        ? 'doubao-seedance-1-0-pro-250428'
+        : 'doubao-seedance-1-0-lite-t2v-250428';
+    }
+
+    // Build content array
+    const content: Array<Record<string, unknown>> = [
+      {
+        type: 'text',
+        text: fullPrompt,
+      },
+    ];
+
+    // Add reference image for i2v mode
+    if (useI2V && referenceImageUrl) {
+      content.push({
+        type: 'image_url',
+        image_url: {
+          url: referenceImageUrl,
+        },
+      });
+    }
+
+    console.log(`Video generation mode: ${useI2V ? 'i2v (image-to-video)' : 't2v (text-to-video)'}, model: ${modelId}`);
 
     const response = await fetch(`${ARK_API_BASE}/contents/generations/tasks`, {
       method: 'POST',
@@ -36,12 +68,7 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({
         model: modelId,
-        content: [
-          {
-            type: 'text',
-            text: fullPrompt,
-          },
-        ],
+        content,
       }),
     });
 
