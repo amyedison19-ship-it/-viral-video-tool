@@ -140,76 +140,34 @@ export default function Home() {
 
       setProgress(10);
 
-      // Step 2: Upload video directly to Google's resumable upload URL
-      // Browser sends the entire file as one "upload, finalize" chunk (no 8MB restriction for last chunk)
-      // XHR is used for upload progress tracking; browser auto-sets Content-Length
+      // Step 2: Upload video through server proxy as single "upload, finalize" chunk
+      // Single chunk = last chunk = no 8MB granularity restriction from Gemini
       step = '上传视频';
       setStatusText('正在上传视频...');
-      setProgress(15);
+      setProgress(20);
 
-      const uploadData = await new Promise<Record<string, unknown>>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('PUT', uploadUrl);
-        // Do NOT set Content-Length (browser does it automatically; setting it manually causes CORS errors)
-        xhr.setRequestHeader('X-Goog-Upload-Offset', '0');
-        xhr.setRequestHeader('X-Goog-Upload-Command', 'upload, finalize');
-
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            const pct = e.loaded / e.total;
-            setProgress(10 + pct * 40);
-            setStatusText(`正在上传视频... ${Math.round(pct * 100)}%`);
-          }
-        };
-
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              resolve(JSON.parse(xhr.responseText));
-            } catch {
-              reject(new Error('上传响应解析失败'));
-            }
-          } else {
-            reject(new Error(`上传失败 (${xhr.status}): ${xhr.responseText.slice(0, 200)}`));
-          }
-        };
-
-        xhr.onerror = () => {
-          // If direct upload fails (CORS), fall back to server proxy for small files
-          if (file.size <= 4 * 1024 * 1024) {
-            fetch('/api/upload-chunk', {
-              method: 'POST',
-              headers: {
-                'x-upload-url': uploadUrl,
-                'x-upload-offset': '0',
-                'x-upload-command': 'upload, finalize',
-              },
-              body: file,
-            })
-              .then(res => {
-                if (!res.ok) return res.json().then(d => reject(new Error(d.error || `代理上传失败 (${res.status})`)));
-                return res.json().then(resolve);
-              })
-              .catch(() => reject(new Error('视频上传失败，请重试')));
-          } else {
-            reject(new Error('视频上传失败：文件较大时需要直接连接 Google 服务器，请检查网络'));
-          }
-        };
-
-        xhr.ontimeout = () => reject(new Error('上传超时，请重试'));
-        xhr.timeout = 600000; // 10 min
-
-        xhr.send(file);
+      const uploadRes = await fetch('/api/upload-chunk', {
+        method: 'POST',
+        headers: {
+          'x-upload-url': uploadUrl,
+          'x-upload-offset': '0',
+          'x-upload-command': 'upload, finalize',
+        },
+        body: file,
       });
 
-      setProgress(50);
-      setStatusText('上传完成，准备分析...');
+      if (!uploadRes.ok) {
+        const errData = await uploadRes.json().catch(() => ({ error: `上传失败 (${uploadRes.status})` }));
+        throw new Error(errData.error || `视频上传失败 (${uploadRes.status})`);
+      }
 
+      const uploadData = await uploadRes.json();
       const fileUri = (uploadData as Record<string, Record<string, string>>)?.file?.uri;
       if (!fileUri) {
-        console.error('Upload response:', JSON.stringify(uploadData).slice(0, 500));
         throw new Error('上传成功但未获取到文件 URI');
       }
+
+      setProgress(50);
 
       setProgress(50);
 
