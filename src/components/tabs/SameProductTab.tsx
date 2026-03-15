@@ -16,13 +16,40 @@ const SCENARIO_PRESETS = [
   { label: '街拍场景', value: '街拍' },
 ];
 
-const CHARACTER_PRESETS = [
-  { label: '不换人物', value: '', description: '保持原视频人物' },
-  { label: '年轻女性', value: '年轻女性', description: '20-30岁，时尚活力' },
-  { label: '年轻男性', value: '年轻男性', description: '20-30岁，阳光帅气' },
-  { label: '职场白领', value: '职场白领', description: '专业干练，商务风格' },
-  { label: '家庭主妇/主夫', value: '家庭主妇/主夫', description: '温馨居家，亲和力强' },
-  { label: '学生', value: '学生', description: '青春活泼，校园风格' },
+const CHARACTER_CATEGORIES = [
+  {
+    category: '性别与年龄',
+    presets: [
+      { label: '不换人物', value: '', description: '保持原视频人物' },
+      { label: '年轻女性', value: '年轻女性（20-30岁）', description: '20-30岁，时尚活力' },
+      { label: '年轻男性', value: '年轻男性（20-30岁）', description: '20-30岁，阳光帅气' },
+      { label: '中年女性', value: '中年女性（35-50岁）', description: '35-50岁，成熟优雅' },
+      { label: '中年男性', value: '中年男性（35-50岁）', description: '35-50岁，稳重可靠' },
+      { label: '青少年', value: '青少年（15-20岁）', description: '15-20岁，青春活力' },
+      { label: '老年人', value: '老年人（60岁以上）', description: '60岁以上，慈祥亲切' },
+    ],
+  },
+  {
+    category: '职业身份',
+    presets: [
+      { label: '职场白领', value: '职场白领', description: '专业干练，商务风格' },
+      { label: '家庭主妇/主夫', value: '家庭主妇/主夫', description: '温馨居家，亲和力强' },
+      { label: '大学生', value: '大学生', description: '青春活泼，校园风格' },
+      { label: '健身达人', value: '健身达人', description: '运动活力，健康阳光' },
+      { label: '时尚博主', value: '时尚博主', description: '潮流前沿，穿搭时尚' },
+    ],
+  },
+  {
+    category: '全球多元',
+    presets: [
+      { label: '欧美模特', value: '欧美风格模特', description: '欧美外形，国际化风格' },
+      { label: '东南亚模特', value: '东南亚风格模特', description: '东南亚外形，亲和自然' },
+      { label: '日韩模特', value: '日韩风格模特', description: '日韩外形，精致清新' },
+      { label: '中东模特', value: '中东风格模特', description: '中东外形，深邃大气' },
+      { label: '非洲模特', value: '非洲风格模特', description: '非洲外形，活力热情' },
+      { label: '拉美模特', value: '拉美风格模特', description: '拉美外形，热情奔放' },
+    ],
+  },
 ];
 
 export default function SameProductTab({ analysis, onScriptGenerated }: Props) {
@@ -178,26 +205,31 @@ export default function SameProductTab({ analysis, onScriptGenerated }: Props) {
             </span>
           </div>
 
-          <div className="flex flex-wrap gap-2 mb-3">
-            {CHARACTER_PRESETS.map((preset) => (
-              <button
-                key={preset.value}
-                className="px-3 py-1.5 rounded-full text-xs font-medium transition-all"
-                style={{
-                  background: character === preset.value ? 'var(--accent-purple, #8b5cf6)' : 'var(--bg-card)',
-                  color: character === preset.value ? 'white' : 'var(--text-secondary)',
-                  border: `1px solid ${character === preset.value ? 'var(--accent-purple, #8b5cf6)' : 'var(--border-color)'}`,
-                }}
-                onClick={() => {
-                  setCharacter(preset.value);
-                  if (preset.value) setCustomCharacter('');
-                }}
-                title={preset.description}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
+          {CHARACTER_CATEGORIES.map((cat) => (
+            <div key={cat.category} className="mb-3">
+              <span className="text-[11px] mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{cat.category}</span>
+              <div className="flex flex-wrap gap-2">
+                {cat.presets.map((preset) => (
+                  <button
+                    key={preset.label}
+                    className="px-3 py-1.5 rounded-full text-xs font-medium transition-all"
+                    style={{
+                      background: character === preset.value ? 'var(--accent-purple, #8b5cf6)' : 'var(--bg-card)',
+                      color: character === preset.value ? 'white' : 'var(--text-secondary)',
+                      border: `1px solid ${character === preset.value ? 'var(--accent-purple, #8b5cf6)' : 'var(--border-color)'}`,
+                    }}
+                    onClick={() => {
+                      setCharacter(preset.value);
+                      if (preset.value) setCustomCharacter('');
+                    }}
+                    title={preset.description}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
 
           <div className="mb-6">
             <input

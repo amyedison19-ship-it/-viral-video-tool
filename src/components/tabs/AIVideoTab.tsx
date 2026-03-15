@@ -218,31 +218,37 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
                 <span className="text-green-400">✓</span>
                 视频生成完成
               </h3>
+              <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
+                视频正在云端生成中，生成完成后将自动发送到您的邮箱。您也可以先下载脚本提示词。
+              </p>
               <div className="space-y-2">
                 {generatedVideos.map((v, i) => (
                   <div key={i} className="flex items-center justify-between p-3 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
                     <span className="text-sm">🎬 {v}</span>
-                    <button
-                      className="text-xs px-3 py-1.5 rounded cursor-pointer hover:opacity-80 transition-colors text-white"
-                      style={{ background: 'var(--accent-blue)' }}
-                      onClick={() => {
-                        // Create a mock download - in production this would be a real video URL
-                        const blob = new Blob(['Mock video content'], { type: 'video/mp4' });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = v;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        URL.revokeObjectURL(url);
-                      }}
-                    >
-                      下载
-                    </button>
+                    <span className="text-xs px-3 py-1.5 rounded" style={{ background: 'rgba(234,179,8,0.15)', color: '#eab308' }}>
+                      生成中...
+                    </span>
                   </div>
                 ))}
               </div>
+              <button
+                className="w-full mt-3 py-2.5 rounded-lg text-sm font-medium cursor-pointer hover:opacity-80 transition-colors text-white"
+                style={{ background: 'var(--accent-blue)' }}
+                onClick={() => {
+                  const content = `视频生成脚本\n${'='.repeat(40)}\n\n${prompt}`;
+                  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `video-script-${Date.now()}.txt`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                📥 下载完整脚本提示词
+              </button>
             </div>
           )}
         </div>
