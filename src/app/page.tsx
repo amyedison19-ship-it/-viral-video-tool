@@ -13,6 +13,27 @@ export default function Home() {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Extract video metadata using HTML5 video element
+  const getVideoMetadata = useCallback((file: File): Promise<{ duration: number; width: number; height: number }> => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      video.onloadedmetadata = () => {
+        resolve({
+          duration: video.duration || 0,
+          width: video.videoWidth || 0,
+          height: video.videoHeight || 0,
+        });
+        URL.revokeObjectURL(video.src);
+      };
+      video.onerror = () => {
+        resolve({ duration: 0, width: 0, height: 0 });
+        URL.revokeObjectURL(video.src);
+      };
+      video.src = URL.createObjectURL(file);
+    });
+  }, []);
+
   const handleFileSelect = useCallback(async (file: File) => {
     if (!file.type.startsWith('video/')) {
       alert('请选择视频文件');
@@ -26,45 +47,98 @@ export default function Home() {
     setIsAnalyzing(true);
     setProgress(0);
     setErrorMsg('');
-    setStatusText('正在上传视频...');
-
-    // Animate progress during upload + analysis
-    let currentProgress = 0;
-    const interval = setInterval(() => {
-      currentProgress += Math.random() * 3;
-      if (currentProgress > 90) currentProgress = 90;
-      setProgress(currentProgress);
-    }, 500);
+    setStatusText('正在读取视频信息...');
 
     try {
-      // Upload phase
+      // Step 0: Get video metadata from browser
+      const metadata = await getVideoMetadata(file);
       setProgress(5);
-      setStatusText('正在上传视频...');
 
-      const formData = new FormData();
-      formData.append('video', file);
-
-      setProgress(15);
-      setStatusText('正在提取视频关键帧...');
-
-      const response = await fetch('/api/analyze', {
+      // Step 1: Init resumable upload (small JSON, no size limit issues)
+      setStatusText('正在初始化上传...');
+      const initRes = await fetch('/api/init-upload', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type || 'video/mp4',
+        }),
+      });
+
+      if (!initRes.ok) {
+        const initData = await initRes.json().catch(() => ({ error: '初始化上传失败' }));
+        throw new Error(initData.error || '初始化上传失败');
+      }
+
+      const { uploadUrl } = await initRes.json();
+      if (!uploadUrl) throw new Error('未获取到上传地址');
+
+      setProgress(10);
+
+      // Step 2: Upload video directly to Gemini (bypasses Vercel size limit)
+      setStatusText('正在上传视频到 Gemini...');
+      const uploadRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Length': String(file.size),
+          'X-Goog-Upload-Offset': '0',
+          'X-Goog-Upload-Command': 'upload, finalize',
+        },
+        body: file,
+      });
+
+      if (!uploadRes.ok) {
+        const errText = await uploadRes.text().catch(() => '');
+        console.error('Gemini upload error:', uploadRes.status, errText);
+        throw new Error(`视频上传失败 (${uploadRes.status})`);
+      }
+
+      const uploadData = await uploadRes.json();
+      const fileUri = uploadData?.file?.uri;
+      if (!fileUri) {
+        console.error('Upload response:', JSON.stringify(uploadData).slice(0, 500));
+        throw new Error('上传成功但未获取到文件 URI');
+      }
+
+      setProgress(50);
+
+      // Step 3: Call analyze API with file URI (small JSON body)
+      setStatusText('Gemini AI 正在分析视频内容...');
+
+      // Animate progress during analysis
+      let currentProgress = 50;
+      const interval = setInterval(() => {
+        currentProgress += Math.random() * 3;
+        if (currentProgress > 90) currentProgress = 90;
+        setProgress(currentProgress);
+      }, 500);
+
+      const analyzeRes = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileUri,
+          mimeType: file.type || 'video/mp4',
+          fileName: file.name,
+          duration: metadata.duration,
+          width: metadata.width,
+          height: metadata.height,
+        }),
       });
 
       clearInterval(interval);
 
-      // Check content-type before parsing as JSON
-      const contentType = response.headers.get('content-type') || '';
+      const contentType = analyzeRes.headers.get('content-type') || '';
       if (!contentType.includes('application/json')) {
-        const text = await response.text();
-        console.error('Non-JSON response:', response.status, text.slice(0, 200));
-        throw new Error(`服务器返回了非 JSON 响应 (${response.status})，请检查服务端配置`);
+        const text = await analyzeRes.text();
+        console.error('Non-JSON response:', analyzeRes.status, text.slice(0, 200));
+        throw new Error(`服务器返回了非 JSON 响应 (${analyzeRes.status})，请检查服务端配置`);
       }
 
-      const data = await response.json();
+      const data = await analyzeRes.json();
 
-      if (!response.ok) {
+      if (!analyzeRes.ok) {
         throw new Error(data.error || '分析失败，请重试');
       }
 
@@ -78,13 +152,12 @@ export default function Home() {
 
       setAnalysis(result);
     } catch (error) {
-      clearInterval(interval);
       const msg = error instanceof Error ? error.message : '分析失败，请重试';
       setErrorMsg(msg);
     } finally {
       setIsAnalyzing(false);
     }
-  }, []);
+  }, [getVideoMetadata]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();

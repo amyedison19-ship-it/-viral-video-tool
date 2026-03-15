@@ -1,8 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { GoogleAIFileManager, FileState } from '@google/generative-ai/server';
 import { VideoMetadata } from './video-processing';
 import { VideoAnalysis, Shot, ShotType } from './types';
-import path from 'path';
 
 const VALID_SHOT_TYPES: ShotType[] = ['痛点放大', '产品展示', '使用场景', '效果对比', '行动引导', '开头钩子', '信任背书', '其他'];
 
@@ -11,93 +9,19 @@ function normalizeShotType(type: string): ShotType {
   return '其他';
 }
 
-function getMimeType(filePath: string): string {
-  const ext = path.extname(filePath).toLowerCase();
-  const mimeMap: Record<string, string> = {
-    '.mp4': 'video/mp4',
-    '.mov': 'video/quicktime',
-    '.avi': 'video/x-msvideo',
-    '.webm': 'video/webm',
-    '.mkv': 'video/x-matroska',
-  };
-  return mimeMap[ext] || 'video/mp4';
-}
-
-/**
- * Upload video to Gemini Files API and wait for processing to complete
- */
-async function uploadAndWaitForVideo(
-  fileManager: GoogleAIFileManager,
-  videoPath: string,
-  fileName: string,
-): Promise<{ fileUri: string; mimeType: string }> {
-  const mimeType = getMimeType(videoPath);
-
-  // Upload the video file
-  const uploadResult = await fileManager.uploadFile(videoPath, {
-    mimeType,
-    displayName: fileName,
-  });
-
-  const file = uploadResult.file;
-  if (!file.uri || !file.name) {
-    throw new Error('文件上传失败：未返回文件信息');
-  }
-
-  // Poll until the video is processed (state becomes ACTIVE)
-  // getFile returns FileMetadataResponse directly
-  const maxWait = 120_000; // 2 minutes max
-  const pollInterval = 3_000;
-  let waited = 0;
-  let currentFile = file;
-
-  while (currentFile.state === FileState.PROCESSING && waited < maxWait) {
-    await new Promise(resolve => setTimeout(resolve, pollInterval));
-    waited += pollInterval;
-    currentFile = await fileManager.getFile(file.name);
-  }
-
-  if (currentFile.state === FileState.FAILED) {
-    throw new Error('视频处理失败，请检查视频文件格式');
-  }
-  if (currentFile.state !== FileState.ACTIVE) {
-    throw new Error(`视频处理超时，当前状态: ${currentFile.state}`);
-  }
-
-  return { fileUri: currentFile.uri, mimeType };
-}
-
-/**
- * Analyze a video file using Google Gemini API with native video understanding
- */
-export async function analyzeVideoWithGemini(
-  videoPath: string,
-  metadata: VideoMetadata,
-  fileName: string,
-): Promise<VideoAnalysis> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY 未设置。请在 .env 文件中配置 GEMINI_API_KEY。');
-  }
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const fileManager = new GoogleAIFileManager(apiKey);
-
-  // Step 1: Upload video to Gemini Files API
-  const { fileUri, mimeType } = await uploadAndWaitForVideo(fileManager, videoPath, fileName);
-
-  // Step 2: Build the analysis prompt
-  const analysisPrompt = `你是一个资深短视频营销专家和爆款内容分析师。请对这个短视频进行全面的拆解分析。
+function buildAnalysisPrompt(fileName: string, metadata: VideoMetadata): string {
+  return `你是一个资深短视频营销专家和爆款内容分析师。请对这个短视频进行全面的拆解分析。
 
 视频信息:
 - 文件名: "${fileName}"
-- 视频时长: ${metadata.duration.toFixed(1)}秒
-- 分辨率: ${metadata.width}x${metadata.height}
+- 视频时长: ${metadata.duration > 0 ? metadata.duration.toFixed(1) + '秒' : '未知'}
+- 分辨率: ${metadata.width > 0 ? metadata.width + 'x' + metadata.height : '未知'}
 
 请仔细观看整个视频（包括画面和音频），然后严格按照以下 JSON 格式返回分析结果。
 不要包含任何其他文字、解释或 markdown 标记，只返回纯 JSON：
 
 {
+  "videoDuration": 30.0,
   "shots": [
     {
       "id": 1,
@@ -159,16 +83,160 @@ export async function analyzeVideoWithGemini(
 }
 
 分析要求：
-1. shots 数组：根据画面场景切换来划分镜头，每个场景变化都应该是一个新镜头
-2. 时间戳：尽可能精确到0.1秒
-3. type 必须是：开头钩子、痛点放大、产品展示、使用场景、效果对比、行动引导、信任背书、其他
-4. hasProduct：当镜头中出现产品实物时为 true
-5. narration：如果视频有语音，请尽可能准确转录；如果有字幕，请提取字幕内容
-6. overallScore：0-100 分，从完播率、转化力、创意性、节奏感等维度综合评分
-7. 请像一个月薪5万的资深短视频运营专家一样，给出真正有价值、可执行的专业洞察`;
+1. videoDuration：请根据视频实际时长填写（秒）
+2. shots 数组：根据画面场景切换来划分镜头，每个场景变化都应该是一个新镜头
+3. 时间戳：尽可能精确到0.1秒
+4. type 必须是：开头钩子、痛点放大、产品展示、使用场景、效果对比、行动引导、信任背书、其他
+5. hasProduct：当镜头中出现产品实物时为 true
+6. narration：如果视频有语音，请尽可能准确转录；如果有字幕，请提取字幕内容
+7. overallScore：0-100 分，从完播率、转化力、创意性、节奏感等维度综合评分
+8. 请像一个月薪5万的资深短视频运营专家一样，给出真正有价值、可执行的专业洞察`;
+}
 
-  // Step 3: Call Gemini generateContent with the uploaded video
+function parseGeminiResponse(text: string): Record<string, unknown> {
+  let jsonStr = text.trim();
+
+  // Strip markdown code block if present
+  const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (jsonMatch) {
+    jsonStr = jsonMatch[1].trim();
+  }
+
+  try {
+    return JSON.parse(jsonStr);
+  } catch {
+    // Try to extract JSON object more aggressively
+    const startIdx = jsonStr.indexOf('{');
+    const endIdx = jsonStr.lastIndexOf('}');
+    if (startIdx !== -1 && endIdx !== -1) {
+      return JSON.parse(jsonStr.slice(startIdx, endIdx + 1));
+    }
+    console.error('Gemini raw response:', text.slice(0, 500));
+    throw new Error('无法解析 Gemini 返回的 JSON 数据');
+  }
+}
+
+function buildVideoAnalysis(
+  parsed: Record<string, unknown>,
+  fileName: string,
+  metadata: VideoMetadata,
+): VideoAnalysis {
+  const p = parsed as Record<string, unknown>;
+
+  // Use duration from Gemini response if we don't have it from metadata
+  const videoDuration = metadata.duration > 0
+    ? metadata.duration
+    : Number(p.videoDuration) || 0;
+
+  const shots: Shot[] = ((p.shots as Record<string, unknown>[]) || []).map(
+    (s: Record<string, unknown>, i: number) => ({
+      id: i + 1,
+      startTime: Number(s.startTime) || 0,
+      endTime: Number(s.endTime) || 0,
+      type: normalizeShotType(s.type as string),
+      description: String(s.description || ''),
+      narration: String(s.narration || ''),
+      hasProduct: Boolean(s.hasProduct),
+      thumbnailUrl: `/api/placeholder/shot/${i + 1}`,
+    })
+  );
+
+  const productShots = shots.filter(s => s.hasProduct);
+  const firstProductShot = productShots[0];
+  const firstProductAppearance = firstProductShot
+    ? firstProductShot.startTime
+    : videoDuration;
+  const productExposureDuration = productShots.reduce(
+    (sum, s) => sum + (s.endTime - s.startTime), 0
+  );
+  const productExposurePercent = videoDuration > 0
+    ? Math.round((productExposureDuration / videoDuration) * 100)
+    : 0;
+
+  const titleAnalysis = p.titleAnalysis as Record<string, unknown> | undefined;
+  const hookAnalysis = p.hookAnalysis as Record<string, unknown> | undefined;
+  const contentStructure = p.contentStructure as Record<string, unknown> | undefined;
+  const emotionCurve = p.emotionCurve as Record<string, unknown> | undefined;
+  const scriptAnalysis = p.scriptAnalysis as Record<string, unknown> | undefined;
+
+  return {
+    id: Math.random().toString(36).substr(2, 9),
+    fileName,
+    videoDuration: Math.round(videoDuration * 10) / 10,
+    firstProductAppearance: Math.round(firstProductAppearance * 10) / 10,
+    productExposureDuration: Math.round(productExposureDuration * 10) / 10,
+    productExposurePercent,
+    shotCount: shots.length,
+    shots,
+    optimizationTip: String(p.optimizationTip || '暂无优化建议'),
+    titleAnalysis: {
+      title: String(titleAnalysis?.title || ''),
+      keywords: (titleAnalysis?.keywords as string[]) || [],
+      emotionalTrigger: String(titleAnalysis?.emotionalTrigger || ''),
+      targetAudience: String(titleAnalysis?.targetAudience || ''),
+    },
+    hookAnalysis: {
+      hookType: String(hookAnalysis?.hookType || ''),
+      hookDescription: String(hookAnalysis?.hookDescription || ''),
+      hookDuration: Number(hookAnalysis?.hookDuration) || 0,
+      effectiveness: String(hookAnalysis?.effectiveness || ''),
+    },
+    contentStructure: {
+      pattern: String(contentStructure?.pattern || ''),
+      phases: ((contentStructure?.phases as Record<string, unknown>[]) || []).map(
+        (phase: Record<string, unknown>) => ({
+          name: String(phase.name || ''),
+          startTime: Number(phase.startTime) || 0,
+          endTime: Number(phase.endTime) || 0,
+          purpose: String(phase.purpose || ''),
+          technique: String(phase.technique || ''),
+        })
+      ),
+    },
+    emotionCurve: {
+      overall: String(emotionCurve?.overall || ''),
+      peaks: ((emotionCurve?.peaks as Record<string, unknown>[]) || []).map(
+        (peak: Record<string, unknown>) => ({
+          time: Number(peak.time) || 0,
+          emotion: String(peak.emotion || ''),
+          trigger: String(peak.trigger || ''),
+        })
+      ),
+      rhythm: String(emotionCurve?.rhythm || ''),
+    },
+    scriptAnalysis: {
+      fullScript: String(scriptAnalysis?.fullScript || ''),
+      wordCount: Number(scriptAnalysis?.wordCount) || 0,
+      paceWordsPerSecond: Number(scriptAnalysis?.paceWordsPerSecond) || 0,
+      toneStyle: String(scriptAnalysis?.toneStyle || ''),
+      keyPhrases: (scriptAnalysis?.keyPhrases as string[]) || [],
+      callToAction: String(scriptAnalysis?.callToAction || ''),
+    },
+    overallScore: Number(p.overallScore) || 0,
+    strengths: (p.strengths as string[]) || [],
+    weaknesses: (p.weaknesses as string[]) || [],
+  };
+}
+
+/**
+ * Analyze a video using a Gemini file URI (video already uploaded to Gemini by client).
+ * This is the main function used for Vercel-compatible deployment.
+ */
+export async function analyzeWithGeminiByUri(
+  fileUri: string,
+  mimeType: string,
+  metadata: VideoMetadata,
+  fileName: string,
+): Promise<VideoAnalysis> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY 未设置。请在 .env 文件中配置 GEMINI_API_KEY。');
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+  const prompt = buildAnalysisPrompt(fileName, metadata);
 
   const result = await model.generateContent([
     {
@@ -177,110 +245,14 @@ export async function analyzeVideoWithGemini(
         fileUri,
       },
     },
-    { text: analysisPrompt },
+    { text: prompt },
   ]);
 
-  const response = result.response;
-  const text = response.text();
+  const text = result.response.text();
   if (!text) {
     throw new Error('Gemini 未返回分析结果');
   }
 
-  // Step 4: Parse JSON from response
-  let jsonStr = text.trim();
-  // Strip markdown code block if present
-  const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (jsonMatch) {
-    jsonStr = jsonMatch[1].trim();
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(jsonStr);
-  } catch {
-    // Try to extract JSON from the response more aggressively
-    const startIdx = jsonStr.indexOf('{');
-    const endIdx = jsonStr.lastIndexOf('}');
-    if (startIdx !== -1 && endIdx !== -1) {
-      parsed = JSON.parse(jsonStr.slice(startIdx, endIdx + 1));
-    } else {
-      console.error('Gemini raw response:', text.slice(0, 500));
-      throw new Error('无法解析 Gemini 返回的 JSON 数据');
-    }
-  }
-
-  // Step 5: Build the VideoAnalysis object
-  const shots: Shot[] = (parsed.shots || []).map((s: Record<string, unknown>, i: number) => ({
-    id: i + 1,
-    startTime: Number(s.startTime) || 0,
-    endTime: Number(s.endTime) || 0,
-    type: normalizeShotType(s.type as string),
-    description: String(s.description || ''),
-    narration: String(s.narration || ''),
-    hasProduct: Boolean(s.hasProduct),
-    thumbnailUrl: `/api/frames/${encodeURIComponent(fileName)}/${i}`,
-  }));
-
-  // Calculate product metrics
-  const productShots = shots.filter(s => s.hasProduct);
-  const firstProductShot = productShots[0];
-  const firstProductAppearance = firstProductShot ? firstProductShot.startTime : metadata.duration;
-  const productExposureDuration = productShots.reduce((sum, s) => sum + (s.endTime - s.startTime), 0);
-  const productExposurePercent = metadata.duration > 0
-    ? Math.round((productExposureDuration / metadata.duration) * 100)
-    : 0;
-
-  // Step 6: Clean up uploaded file from Gemini (best effort)
-  try {
-    const uploadedFile = await fileManager.getFile(fileUri.split('/').pop()!);
-    if (uploadedFile.name) {
-      await fileManager.deleteFile(uploadedFile.name);
-    }
-  } catch {
-    // ignore cleanup errors
-  }
-
-  return {
-    id: Math.random().toString(36).substr(2, 9),
-    fileName,
-    videoDuration: Math.round(metadata.duration * 10) / 10,
-    firstProductAppearance: Math.round(firstProductAppearance * 10) / 10,
-    productExposureDuration: Math.round(productExposureDuration * 10) / 10,
-    productExposurePercent,
-    shotCount: shots.length,
-    shots,
-    optimizationTip: parsed.optimizationTip || '暂无优化建议',
-    titleAnalysis: parsed.titleAnalysis || {
-      title: '未能分析标题',
-      keywords: [],
-      emotionalTrigger: '',
-      targetAudience: '',
-    },
-    hookAnalysis: parsed.hookAnalysis || {
-      hookType: '',
-      hookDescription: '',
-      hookDuration: 0,
-      effectiveness: '',
-    },
-    contentStructure: parsed.contentStructure || {
-      pattern: '',
-      phases: [],
-    },
-    emotionCurve: parsed.emotionCurve || {
-      overall: '',
-      peaks: [],
-      rhythm: '',
-    },
-    scriptAnalysis: parsed.scriptAnalysis || {
-      fullScript: '',
-      wordCount: 0,
-      paceWordsPerSecond: 0,
-      toneStyle: '',
-      keyPhrases: [],
-      callToAction: '',
-    },
-    overallScore: parsed.overallScore || 0,
-    strengths: parsed.strengths || [],
-    weaknesses: parsed.weaknesses || [],
-  };
+  const parsed = parseGeminiResponse(text);
+  return buildVideoAnalysis(parsed, fileName, metadata);
 }
