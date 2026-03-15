@@ -3,12 +3,13 @@
 import { useState, useRef, useCallback } from 'react';
 import AnalysisResult from '@/components/AnalysisResult';
 import { VideoAnalysis } from '@/lib/types';
-import { generateMockAnalysis } from '@/lib/mock-data';
 
 export default function Home() {
   const [analysis, setAnalysis] = useState<VideoAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [statusText, setStatusText] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -24,28 +25,56 @@ export default function Home() {
 
     setIsAnalyzing(true);
     setProgress(0);
+    setErrorMsg('');
+    setStatusText('正在上传视频...');
 
-    // Simulate analysis progress
+    // Animate progress during upload + analysis
+    let currentProgress = 0;
     const interval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 95) {
-          clearInterval(interval);
-          return 95;
-        }
-        return prev + Math.random() * 15;
+      currentProgress += Math.random() * 3;
+      if (currentProgress > 90) currentProgress = 90;
+      setProgress(currentProgress);
+    }, 500);
+
+    try {
+      // Upload phase
+      setProgress(5);
+      setStatusText('正在上传视频...');
+
+      const formData = new FormData();
+      formData.append('video', file);
+
+      setProgress(15);
+      setStatusText('正在提取视频关键帧...');
+
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        body: formData,
       });
-    }, 300);
 
-    // Simulate processing time
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    clearInterval(interval);
-    setProgress(100);
+      clearInterval(interval);
 
-    const result = generateMockAnalysis(file.name);
-    await new Promise(resolve => setTimeout(resolve, 500));
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || '分析失败，请重试');
+      }
 
-    setAnalysis(result);
-    setIsAnalyzing(false);
+      setProgress(95);
+      setStatusText('正在生成分析报告...');
+
+      const result: VideoAnalysis = await response.json();
+
+      setProgress(100);
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      setAnalysis(result);
+    } catch (error) {
+      clearInterval(interval);
+      const msg = error instanceof Error ? error.message : '分析失败，请重试';
+      setErrorMsg(msg);
+    } finally {
+      setIsAnalyzing(false);
+    }
   }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -58,6 +87,8 @@ export default function Home() {
   const handleReset = useCallback(() => {
     setAnalysis(null);
     setProgress(0);
+    setErrorMsg('');
+    setStatusText('');
   }, []);
 
   if (analysis) {
@@ -75,7 +106,7 @@ export default function Home() {
         </div>
         <div>
           <h1 className="text-lg font-bold">爆款短视频拆解工具</h1>
-          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>AI驱动的视频结构分析</p>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>AI驱动的视频结构分析 · Powered by Claude</p>
         </div>
       </header>
 
@@ -84,7 +115,7 @@ export default function Home() {
         {/* Upload area */}
         <div
           className={`upload-area w-full max-w-2xl rounded-2xl p-16 flex flex-col items-center justify-center cursor-pointer ${dragOver ? 'dragover' : ''}`}
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => !isAnalyzing && fileInputRef.current?.click()}
           onDrop={handleDrop}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
@@ -92,14 +123,16 @@ export default function Home() {
           {isAnalyzing ? (
             <div className="w-full flex flex-col items-center gap-4">
               <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <p className="text-lg">正在分析视频...</p>
+              <p className="text-lg">{statusText || '正在分析视频...'}</p>
               <div className="w-full max-w-md rounded-full h-2" style={{ background: 'var(--bg-secondary)' }}>
                 <div
-                  className="h-full rounded-full transition-all duration-300"
+                  className="h-full rounded-full transition-all duration-500"
                   style={{ width: `${progress}%`, background: 'var(--accent-blue)' }}
                 />
               </div>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{Math.round(progress)}%</p>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                {Math.round(progress)}% · Claude AI 正在分析视频内容...
+              </p>
             </div>
           ) : (
             <>
@@ -122,9 +155,26 @@ export default function Home() {
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) handleFileSelect(file);
+              // Reset input so same file can be re-selected
+              e.target.value = '';
             }}
           />
         </div>
+
+        {/* Error message */}
+        {errorMsg && (
+          <div className="mt-4 px-5 py-3 rounded-lg flex items-center gap-2 w-full max-w-2xl" style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)' }}>
+            <span className="text-lg">⚠️</span>
+            <span className="text-sm" style={{ color: '#ef4444' }}>{errorMsg}</span>
+            <button
+              onClick={() => setErrorMsg('')}
+              className="ml-auto text-sm px-3 py-1 rounded"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              关闭
+            </button>
+          </div>
+        )}
 
         {/* Feature cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-10 w-full max-w-2xl">
@@ -136,7 +186,7 @@ export default function Home() {
             </div>
             <div>
               <h3 className="font-semibold mb-1">智能镜头拆解</h3>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>自动识别场景切换，提取关键帧截图</p>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Claude AI 自动识别场景，提取关键帧截图</p>
             </div>
           </div>
 
@@ -148,7 +198,7 @@ export default function Home() {
             </div>
             <div>
               <h3 className="font-semibold mb-1">数据指标分析</h3>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>产品露出时长、首现时间等关键指标</p>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>标题分析、钩子拆解、情绪曲线等深度指标</p>
             </div>
           </div>
 
@@ -161,7 +211,7 @@ export default function Home() {
             </div>
             <div>
               <h3 className="font-semibold mb-1">分镜脚本生成</h3>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>生成完整分镜表格，一键导出</p>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>AI 生成完整分镜表格，一键导出</p>
             </div>
           </div>
 

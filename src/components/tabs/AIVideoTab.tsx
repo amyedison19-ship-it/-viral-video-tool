@@ -1,16 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { VideoAnalysis, ShotType } from '@/lib/types';
+import { VideoAnalysis } from '@/lib/types';
 import { generateMockCrossCategoryScript, generateVideoPrompt } from '@/lib/mock-data';
-
-const typeColors: Record<ShotType, string> = {
-  '痛点放大': '#ef4444',
-  '产品展示': '#f97316',
-  '使用场景': '#eab308',
-  '效果对比': '#22c55e',
-  '行动引导': '#3b82f6',
-};
+import { typeColors } from '@/lib/shot-colors';
 
 interface Props {
   analysis: VideoAnalysis;

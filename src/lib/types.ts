@@ -1,4 +1,4 @@
-export type ShotType = '痛点放大' | '产品展示' | '使用场景' | '效果对比' | '行动引导';
+export type ShotType = '痛点放大' | '产品展示' | '使用场景' | '效果对比' | '行动引导' | '开头钩子' | '信任背书' | '其他';
 
 export interface Shot {
   id: number;
@@ -21,6 +21,50 @@ export interface VideoAnalysis {
   shotCount: number;
   shots: Shot[];
   optimizationTip: string;
+
+  // New fields from Claude analysis
+  titleAnalysis: {
+    title: string;
+    keywords: string[];
+    emotionalTrigger: string;
+    targetAudience: string;
+  };
+  hookAnalysis: {
+    hookType: string;
+    hookDescription: string;
+    hookDuration: number;
+    effectiveness: string;
+  };
+  contentStructure: {
+    pattern: string;
+    phases: {
+      name: string;
+      startTime: number;
+      endTime: number;
+      purpose: string;
+      technique: string;
+    }[];
+  };
+  emotionCurve: {
+    overall: string;
+    peaks: {
+      time: number;
+      emotion: string;
+      trigger: string;
+    }[];
+    rhythm: string;
+  };
+  scriptAnalysis: {
+    fullScript: string;
+    wordCount: number;
+    paceWordsPerSecond: number;
+    toneStyle: string;
+    keyPhrases: string[];
+    callToAction: string;
+  };
+  overallScore: number;
+  strengths: string[];
+  weaknesses: string[];
 }
 
 export interface CrossCategoryScript {
@@ -42,4 +86,4 @@ export interface VideoGenerationConfig {
   prompt: string;
 }
 
-export type TabType = 'shots' | 'storyboard' | 'structure' | 'ai-video' | 'export';
+export type TabType = 'shots' | 'storyboard' | 'deep-analysis' | 'structure' | 'ai-video' | 'export';
