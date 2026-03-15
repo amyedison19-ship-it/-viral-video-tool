@@ -320,11 +320,16 @@ export async function analyzeWithGeminiByUri(
   await waitForFileActive(fileUri, apiKey);
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    generationConfig: {
+      responseMimeType: 'application/json',
+    },
+  });
 
   const prompt = buildAnalysisPrompt(fileName, metadata);
 
-  const result = await model.generateContent([
+  const contentParts = [
     {
       fileData: {
         mimeType,
@@ -332,13 +337,26 @@ export async function analyzeWithGeminiByUri(
       },
     },
     { text: prompt },
-  ]);
+  ];
 
-  const text = result.response.text();
-  if (!text) {
-    throw new Error('Gemini 未返回分析结果');
+  // Try up to 2 times in case of JSON parse failure
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = await model.generateContent(contentParts);
+
+    const text = result.response.text();
+    if (!text) {
+      throw new Error('Gemini 未返回分析结果');
+    }
+
+    try {
+      const parsed = parseGeminiResponse(text);
+      return buildVideoAnalysis(parsed, fileName, metadata);
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+      console.warn(`Gemini JSON parse attempt ${attempt + 1} failed, retrying...`);
+    }
   }
 
-  const parsed = parseGeminiResponse(text);
-  return buildVideoAnalysis(parsed, fileName, metadata);
+  throw lastError || new Error('无法解析 Gemini 返回的 JSON 数据');
 }

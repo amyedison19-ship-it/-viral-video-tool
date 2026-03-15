@@ -11,6 +11,7 @@ export default function Home() {
   const [statusText, setStatusText] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  const [lastFile, setLastFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Extract video metadata using HTML5 video element
@@ -92,6 +93,7 @@ export default function Home() {
       return;
     }
 
+    setLastFile(file);
     setIsAnalyzing(true);
     setProgress(0);
     setErrorMsg('');
@@ -345,16 +347,27 @@ export default function Home() {
 
         {/* Error message */}
         {errorMsg && (
-          <div className="mt-4 px-5 py-3 rounded-lg flex items-center gap-2 w-full max-w-2xl" style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)' }}>
-            <span className="text-lg">⚠️</span>
-            <span className="text-sm" style={{ color: '#ef4444' }}>{errorMsg}</span>
-            <button
-              onClick={() => setErrorMsg('')}
-              className="ml-auto text-sm px-3 py-1 rounded"
-              style={{ color: 'var(--text-secondary)' }}
-            >
-              关闭
-            </button>
+          <div className="mt-4 px-5 py-3 rounded-lg w-full max-w-2xl" style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)' }}>
+            <div className="flex items-center gap-2">
+              <span className="text-lg">⚠️</span>
+              <span className="text-sm flex-1" style={{ color: '#ef4444' }}>{errorMsg}</span>
+              <button
+                onClick={() => setErrorMsg('')}
+                className="text-sm px-3 py-1 rounded"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                关闭
+              </button>
+            </div>
+            {lastFile && (
+              <button
+                onClick={() => { setErrorMsg(''); handleFileSelect(lastFile); }}
+                className="mt-2 text-sm px-4 py-1.5 rounded-lg font-medium text-white"
+                style={{ background: 'var(--accent-blue)' }}
+              >
+                重新分析
+              </button>
+            )}
           </div>
         )}
 

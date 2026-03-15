@@ -26,7 +26,16 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedVideos, setGeneratedVideos] = useState<GeneratedVideo[]>([]);
   const [errorMsg, setErrorMsg] = useState('');
+  const [arkConfigured, setArkConfigured] = useState(true);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Check API key configuration on mount
+  useEffect(() => {
+    fetch('/api/check-config')
+      .then(res => res.json())
+      .then(data => setArkConfigured(!!data.ark))
+      .catch(() => {});
+  }, []);
 
   const productName = analysis.titleAnalysis?.title || analysis.fileName || '产品';
 
@@ -303,6 +312,15 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
             </div>
           </div>
 
+          {/* Config warning */}
+          {!arkConfigured && (
+            <div className="rounded-lg p-3 flex items-center gap-2" style={{ background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)' }}>
+              <span className="text-sm" style={{ color: '#eab308' }}>
+                未配置 ARK_API_KEY — 请在 .env 文件中设置火山方舟 API Key，然后重启服务器
+              </span>
+            </div>
+          )}
+
           {/* Error message */}
           {errorMsg && (
             <div className="rounded-lg p-3 flex items-center gap-2" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
@@ -313,7 +331,7 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
           {/* Generate button */}
           <button
             onClick={handleGenerate}
-            disabled={isGenerating}
+            disabled={isGenerating || !arkConfigured}
             className="w-full py-4 rounded-xl text-white font-medium text-lg transition-all"
             style={{
               background: isGenerating
