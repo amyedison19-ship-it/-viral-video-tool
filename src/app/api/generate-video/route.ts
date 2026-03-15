@@ -15,17 +15,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '缺少视频描述提示词' }, { status: 400 });
     }
 
-    // Build the prompt with parameters
+    // Build the prompt with Seedance parameter flags
     const params = [];
-    if (aspectRatio) params.push(`--ar ${aspectRatio}`);
+    if (aspectRatio) params.push(`--ratio ${aspectRatio}`);
     if (duration) params.push(`--dur ${duration}`);
+    params.push('--rs 720p');
 
     const fullPrompt = params.length > 0 ? `${prompt} ${params.join(' ')}` : prompt;
 
     // Select model ID based on user choice
     const modelId = model === 'quality'
       ? 'doubao-seedance-1-0-pro-250528'
-      : 'doubao-seedance-1-0-lite-250428';
+      : 'doubao-seedance-1-0-lite-t2v-250428';
 
     const response = await fetch(`${ARK_API_BASE}/contents/generations/tasks`, {
       method: 'POST',
