@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
 
     // Select model ID based on user choice
     const modelId = model === 'quality'
-      ? 'doubao-seedance-1-0-pro-250528'
+      ? 'doubao-seedance-1-0-pro-250428'
       : 'doubao-seedance-1-0-lite-t2v-250428';
 
     const response = await fetch(`${ARK_API_BASE}/contents/generations/tasks`, {

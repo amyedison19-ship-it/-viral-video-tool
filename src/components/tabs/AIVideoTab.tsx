@@ -275,9 +275,10 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
               type="range"
               min={2}
               max={12}
+              step={1}
               value={duration}
               onChange={(e) => setDuration(Number(e.target.value))}
-              className="w-full accent-purple-500"
+              className="w-full"
             />
             <div className="flex justify-between text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
               <span>2秒</span>
