@@ -80,13 +80,17 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
         // Handle ARK API response format
         const status = data.status || data.task_status;
         if (status === 'succeeded' || status === 'done' || status === 'completed') {
-          // Extract video URL from response - try multiple possible paths
-          const videoUrl = data.video?.url
+          // Use server-extracted URL first, then try client-side extraction as fallback
+          const videoUrl = data._extractedVideoUrl
+            || data.video?.url
             || data.content?.[0]?.video_url?.url
             || data.content?.[0]?.url
             || data.output?.video_url
             || data.video_url
             || '';
+
+          console.log('Video generation done. Full API response:', JSON.stringify(data, null, 2));
+          console.log('Extracted video URL:', videoUrl);
 
           setGeneratedVideos(prev => prev.map(v =>
             v.taskId === taskId ? { ...v, status: 'done', videoUrl, elapsed } : v
@@ -398,37 +402,83 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
                     <p className="text-xs mb-3" style={{ color: '#ef4444' }}>{video.error}</p>
                   )}
 
-                  {/* Video player */}
-                  {video.status === 'done' && video.videoUrl && (
+                  {/* Video player and download */}
+                  {video.status === 'done' && (
                     <div className="mb-3">
-                      <video
-                        src={video.videoUrl}
-                        controls
-                        className="w-full rounded-lg"
-                        style={{ maxHeight: '400px' }}
-                      />
-                      <button
-                        onClick={async () => {
-                          try {
-                            const res = await fetch(video.videoUrl!);
-                            const blob = await res.blob();
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `seedance-video-${video.taskId}.mp4`;
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(url);
-                          } catch {
-                            window.open(video.videoUrl, '_blank');
-                          }
-                        }}
-                        className="inline-block mt-2 text-sm px-4 py-2 rounded-lg font-medium text-white cursor-pointer"
-                        style={{ background: 'var(--accent-blue)' }}
-                      >
-                        下载视频
-                      </button>
+                      {video.videoUrl ? (
+                        <>
+                          <video
+                            src={video.videoUrl}
+                            controls
+                            className="w-full rounded-lg"
+                            style={{ maxHeight: '400px' }}
+                          />
+                          <div className="flex gap-2 mt-2">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  // Use server-side proxy to download (avoids CORS)
+                                  const proxyUrl = `/api/download-video?url=${encodeURIComponent(video.videoUrl!)}`;
+                                  const res = await fetch(proxyUrl);
+                                  if (!res.ok) throw new Error('Download failed');
+                                  const blob = await res.blob();
+                                  const url = URL.createObjectURL(blob);
+                                  const a = document.createElement('a');
+                                  a.href = url;
+                                  a.download = `seedance-video-${video.taskId}.mp4`;
+                                  document.body.appendChild(a);
+                                  a.click();
+                                  document.body.removeChild(a);
+                                  URL.revokeObjectURL(url);
+                                } catch {
+                                  // Fallback: open in new tab
+                                  window.open(video.videoUrl, '_blank');
+                                }
+                              }}
+                              className="text-sm px-4 py-2 rounded-lg font-medium text-white cursor-pointer"
+                              style={{ background: 'var(--accent-blue)' }}
+                            >
+                              ⬇ 下载视频 (MP4)
+                            </button>
+                            <button
+                              onClick={() => window.open(video.videoUrl, '_blank')}
+                              className="text-sm px-4 py-2 rounded-lg font-medium cursor-pointer"
+                              style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}
+                            >
+                              在新标签页打开
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="rounded-lg p-4" style={{ background: 'var(--bg-secondary)' }}>
+                          <p className="text-sm mb-2" style={{ color: '#eab308' }}>
+                            视频已生成，但未获取到下载链接。请尝试重新查询：
+                          </p>
+                          <button
+                            onClick={async () => {
+                              try {
+                                const res = await fetch(`/api/video-task?id=${video.taskId}`);
+                                const data = await res.json();
+                                console.log('Re-query response:', JSON.stringify(data, null, 2));
+                                const url = data._extractedVideoUrl || '';
+                                if (url) {
+                                  setGeneratedVideos(prev => prev.map(v =>
+                                    v.taskId === video.taskId ? { ...v, videoUrl: url } : v
+                                  ));
+                                } else {
+                                  alert('仍未获取到视频链接，请查看浏览器控制台的 API 响应日志');
+                                }
+                              } catch (err) {
+                                alert(`查询失败: ${String(err)}`);
+                              }
+                            }}
+                            className="text-sm px-4 py-2 rounded-lg font-medium text-white cursor-pointer"
+                            style={{ background: 'var(--accent-purple)' }}
+                          >
+                            重新获取下载链接
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
 
