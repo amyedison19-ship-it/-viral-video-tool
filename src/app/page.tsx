@@ -76,26 +76,43 @@ export default function Home() {
 
       setProgress(10);
 
-      // Step 2: Upload video directly to Gemini (bypasses Vercel size limit)
-      setStatusText('正在上传视频到 Gemini...');
-      const uploadRes = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Length': String(file.size),
-          'X-Goog-Upload-Offset': '0',
-          'X-Goog-Upload-Command': 'upload, finalize',
-        },
-        body: file,
-      });
+      // Step 2: Upload video in chunks through our proxy (avoids CORS + Vercel size limit)
+      setStatusText('正在上传视频...');
+      const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB chunks to stay under Vercel's 4.5MB limit
+      let offset = 0;
+      let uploadData: Record<string, unknown> | null = null;
 
-      if (!uploadRes.ok) {
-        const errText = await uploadRes.text().catch(() => '');
-        console.error('Gemini upload error:', uploadRes.status, errText);
-        throw new Error(`视频上传失败 (${uploadRes.status})`);
+      while (offset < file.size) {
+        const end = Math.min(offset + CHUNK_SIZE, file.size);
+        const chunk = file.slice(offset, end);
+        const isLast = end >= file.size;
+
+        const chunkRes = await fetch('/api/upload-chunk', {
+          method: 'POST',
+          headers: {
+            'x-upload-url': uploadUrl,
+            'x-upload-offset': String(offset),
+            'x-upload-command': isLast ? 'upload, finalize' : 'upload',
+          },
+          body: chunk,
+        });
+
+        if (!chunkRes.ok) {
+          const chunkErr = await chunkRes.json().catch(() => ({ error: '上传失败' }));
+          throw new Error(chunkErr.error || '视频上传失败');
+        }
+
+        if (isLast) {
+          uploadData = await chunkRes.json();
+        }
+
+        offset = end;
+        const uploadProgress = 10 + (offset / file.size) * 40; // 10% → 50%
+        setProgress(uploadProgress);
+        setStatusText(`正在上传视频... ${Math.round((offset / file.size) * 100)}%`);
       }
 
-      const uploadData = await uploadRes.json();
-      const fileUri = uploadData?.file?.uri;
+      const fileUri = (uploadData as Record<string, Record<string, string>>)?.file?.uri;
       if (!fileUri) {
         console.error('Upload response:', JSON.stringify(uploadData).slice(0, 500));
         throw new Error('上传成功但未获取到文件 URI');
