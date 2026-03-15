@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { VideoAnalysis, TabType } from '@/lib/types';
+import { useState, useCallback } from 'react';
+import { VideoAnalysis, TabType, SameProductScript } from '@/lib/types';
 import ShotsTab from './tabs/ShotsTab';
 import StoryboardTab from './tabs/StoryboardTab';
 import DeepAnalysisTab from './tabs/DeepAnalysisTab';
@@ -27,6 +27,11 @@ const tabs: { key: TabType; icon: string; label: string }[] = [
 
 export default function AnalysisResult({ analysis, onReset }: Props) {
   const [activeTab, setActiveTab] = useState<TabType>('shots');
+  const [latestScript, setLatestScript] = useState<SameProductScript | null>(null);
+
+  const handleScriptGenerated = useCallback((script: SameProductScript) => {
+    setLatestScript(script);
+  }, []);
 
   const scoreColor = analysis.overallScore >= 80 ? '#22c55e' : analysis.overallScore >= 60 ? '#eab308' : '#ef4444';
 
@@ -161,8 +166,8 @@ export default function AnalysisResult({ analysis, onReset }: Props) {
         {activeTab === 'storyboard' && <StoryboardTab analysis={analysis} />}
         {activeTab === 'deep-analysis' && <DeepAnalysisTab analysis={analysis} />}
         {activeTab === 'structure' && <StructureTab analysis={analysis} />}
-        {activeTab === 'same-product' && <SameProductTab analysis={analysis} />}
-        {activeTab === 'ai-video' && <AIVideoTab analysis={analysis} />}
+        {activeTab === 'same-product' && <SameProductTab analysis={analysis} onScriptGenerated={handleScriptGenerated} />}
+        {activeTab === 'ai-video' && <AIVideoTab analysis={analysis} latestSameProductScript={latestScript} />}
         {activeTab === 'export' && <ExportTab analysis={analysis} />}
       </div>
     </div>

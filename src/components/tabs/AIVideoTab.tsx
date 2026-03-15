@@ -1,23 +1,37 @@
 'use client';
 
-import { useState } from 'react';
-import { VideoAnalysis } from '@/lib/types';
-import { generateMockCrossCategoryScript, generateVideoPrompt } from '@/lib/mock-data';
+import { useState, useEffect, useMemo } from 'react';
+import { VideoAnalysis, SameProductScript, CrossCategoryScript } from '@/lib/types';
+import { generateMockCrossCategoryScript, generateVideoPrompt, convertSameProductToVideoScript } from '@/lib/mock-data';
 import { typeColors } from '@/lib/shot-colors';
 
 interface Props {
   analysis: VideoAnalysis;
+  latestSameProductScript?: SameProductScript | null;
 }
 
-export default function AIVideoTab({ analysis }: Props) {
+export default function AIVideoTab({ analysis, latestSameProductScript }: Props) {
   const [model, setModel] = useState<'fast' | 'quality'>('fast');
   const [format, setFormat] = useState<'portrait' | 'landscape'>('portrait');
   const [isEditing, setIsEditing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedVideos, setGeneratedVideos] = useState<string[]>([]);
 
-  const mockScript = generateMockCrossCategoryScript('猫咪自动饮水机');
-  const [prompt, setPrompt] = useState(generateVideoPrompt(mockScript));
+  const productName = analysis.titleAnalysis?.title || analysis.fileName || '产品';
+
+  const currentScript: CrossCategoryScript = useMemo(() => {
+    if (latestSameProductScript) {
+      return convertSameProductToVideoScript(latestSameProductScript, productName);
+    }
+    return generateMockCrossCategoryScript(productName);
+  }, [latestSameProductScript, productName]);
+
+  const [prompt, setPrompt] = useState(generateVideoPrompt(currentScript));
+
+  // Update prompt when script changes
+  useEffect(() => {
+    setPrompt(generateVideoPrompt(currentScript));
+  }, [currentScript]);
 
   const handleGenerate = async () => {
     setIsGenerating(true);
@@ -42,10 +56,14 @@ export default function AIVideoTab({ analysis }: Props) {
       <div className="rounded-xl p-4 mb-6" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
         <div className="flex items-center gap-2 mb-3">
           <span className="text-green-400">✓</span>
-          <span className="font-medium">已改编脚本：{mockScript.productName}</span>
+          <span className="font-medium">
+            {latestSameProductScript
+              ? `已更新脚本：${latestSameProductScript.scenarioName}场景 - ${currentScript.productName}`
+              : `已改编脚本：${currentScript.productName}`}
+          </span>
         </div>
         <div className="flex gap-4 overflow-x-auto pb-2">
-          {mockScript.scenes.map((scene, i) => (
+          {currentScript.scenes.map((scene, i) => (
             <div key={i} className="shrink-0 w-[420px] rounded-lg p-3" style={{ background: 'var(--bg-secondary)' }}>
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xs px-2 py-0.5 rounded" style={{ background: typeColors[scene.type] }}>

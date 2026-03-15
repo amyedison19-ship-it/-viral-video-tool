@@ -6,6 +6,7 @@ import { typeColors } from '@/lib/shot-colors';
 
 interface Props {
   analysis: VideoAnalysis;
+  onScriptGenerated?: (script: SameProductScript) => void;
 }
 
 const SCENARIO_PRESETS = [
@@ -15,10 +16,11 @@ const SCENARIO_PRESETS = [
   { label: '街拍场景', value: '街拍' },
 ];
 
-export default function SameProductTab({ analysis }: Props) {
+export default function SameProductTab({ analysis, onScriptGenerated }: Props) {
   const [scenario, setScenario] = useState('');
   const [adaptedScript, setAdaptedScript] = useState<SameProductScript | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   const handleGenerate = async () => {
     if (!scenario.trim()) {
@@ -48,7 +50,9 @@ export default function SameProductTab({ analysis }: Props) {
       };
     });
 
-    setAdaptedScript({ scenarioName: scenario, scenes });
+    const newScript = { scenarioName: scenario, scenes };
+    setAdaptedScript(newScript);
+    onScriptGenerated?.(newScript);
     setIsGenerating(false);
   };
 
@@ -57,7 +61,10 @@ export default function SameProductTab({ analysis }: Props) {
     const text = adaptedScript.scenes
       .map((s, i) => `镜头${i + 1} [${s.type}]\n场景描述：${s.newDescription}\n文案：${s.narration}\n拍摄建议：${s.shootingTip}`)
       .join('\n\n');
-    navigator.clipboard.writeText(text);
+    navigator.clipboard.writeText(text).then(() => {
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    });
   };
 
   return (
@@ -167,11 +174,19 @@ export default function SameProductTab({ analysis }: Props) {
                   </span>
                 </div>
                 <button
-                  className="text-xs px-3 py-1 rounded transition-colors flex items-center gap-1"
-                  style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}
-                  onClick={copyAllScript}
+                  className="text-xs px-3 py-1.5 rounded transition-colors flex items-center gap-1 cursor-pointer hover:opacity-80"
+                  style={{
+                    background: copySuccess ? 'rgba(34,197,94,0.2)' : 'var(--accent-blue)',
+                    color: copySuccess ? '#22c55e' : 'white',
+                    position: 'relative',
+                    zIndex: 10,
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyAllScript();
+                  }}
                 >
-                  📋 复制全部脚本
+                  {copySuccess ? '✅ 已复制' : '📋 复制全部脚本'}
                 </button>
               </div>
 

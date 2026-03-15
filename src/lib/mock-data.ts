@@ -217,6 +217,20 @@ export function generateSameProductScript(
   };
 }
 
+export function convertSameProductToVideoScript(script: SameProductScript, productName: string): CrossCategoryScript {
+  return {
+    productName,
+    scenes: script.scenes.map((scene) => ({
+      type: scene.type,
+      englishDescription: scene.newDescription,
+      chineseDescription: scene.newDescription,
+      hook: scene.type,
+      title: scene.narration || scene.newDescription,
+      recommendation: scene.shootingTip,
+    })),
+  };
+}
+
 export function generateVideoPrompt(script: CrossCategoryScript): string {
   return `## Video Style
 - Modern, sleek, eye-catching visuals
