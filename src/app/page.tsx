@@ -106,7 +106,7 @@ export default function Home() {
         </div>
         <div>
           <h1 className="text-lg font-bold">爆款短视频拆解工具</h1>
-          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>AI驱动的视频结构分析 · Powered by Claude</p>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>AI驱动的视频结构分析 · Powered by Gemini</p>
         </div>
       </header>
 
@@ -131,7 +131,7 @@ export default function Home() {
                 />
               </div>
               <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                {Math.round(progress)}% · Claude AI 正在分析视频内容...
+                {Math.round(progress)}% · Gemini AI 正在分析视频内容...
               </p>
             </div>
           ) : (
@@ -186,7 +186,7 @@ export default function Home() {
             </div>
             <div>
               <h3 className="font-semibold mb-1">智能镜头拆解</h3>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Claude AI 自动识别场景，提取关键帧截图</p>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Gemini AI 自动识别场景，提取关键帧截图</p>
             </div>
           </div>
 
@@ -211,7 +211,7 @@ export default function Home() {
             </div>
             <div>
               <h3 className="font-semibold mb-1">分镜脚本生成</h3>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>AI 生成完整分镜表格，一键导出</p>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Gemini AI 生成完整分镜表格，一键导出</p>
             </div>
           </div>
 
