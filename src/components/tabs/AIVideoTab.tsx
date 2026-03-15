@@ -79,9 +79,10 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
 
         // Handle ARK API response format
         const status = data.status || data.task_status;
-        if (status === 'succeeded' || status === 'done') {
-          // Extract video URL from response
-          const videoUrl = data.content?.[0]?.video_url?.url
+        if (status === 'succeeded' || status === 'done' || status === 'completed') {
+          // Extract video URL from response - try multiple possible paths
+          const videoUrl = data.video?.url
+            || data.content?.[0]?.video_url?.url
             || data.content?.[0]?.url
             || data.output?.video_url
             || data.video_url
@@ -406,16 +407,28 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
                         className="w-full rounded-lg"
                         style={{ maxHeight: '400px' }}
                       />
-                      <a
-                        href={video.videoUrl}
-                        download
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-block mt-2 text-sm px-4 py-2 rounded-lg font-medium text-white"
+                      <button
+                        onClick={async () => {
+                          try {
+                            const res = await fetch(video.videoUrl!);
+                            const blob = await res.blob();
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `seedance-video-${video.taskId}.mp4`;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                          } catch {
+                            window.open(video.videoUrl, '_blank');
+                          }
+                        }}
+                        className="inline-block mt-2 text-sm px-4 py-2 rounded-lg font-medium text-white cursor-pointer"
                         style={{ background: 'var(--accent-blue)' }}
                       >
                         下载视频
-                      </a>
+                      </button>
                     </div>
                   )}
 
