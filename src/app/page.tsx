@@ -398,6 +398,18 @@ export default function Home() {
           </div>
 
           <div className="feature-card flex items-start gap-4">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(59,130,246,0.15)' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="var(--accent-blue)">
+                <path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/>
+              </svg>
+            </div>
+            <div>
+              <h3 className="font-semibold mb-1">同品复刻</h3>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>同款产品换场景拍摄，快速复刻爆款</p>
+            </div>
+          </div>
+
+          <div className="feature-card flex items-start gap-4">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(249,115,22,0.15)' }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="var(--accent-orange)">
                 <path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/>

@@ -86,4 +86,15 @@ export interface VideoGenerationConfig {
   prompt: string;
 }
 
-export type TabType = 'shots' | 'storyboard' | 'deep-analysis' | 'structure' | 'ai-video' | 'export';
+export interface SameProductScript {
+  scenarioName: string;
+  scenes: {
+    type: ShotType;
+    originalDescription: string;
+    newDescription: string;
+    narration: string;
+    shootingTip: string;
+  }[];
+}
+
+export type TabType = 'shots' | 'storyboard' | 'deep-analysis' | 'structure' | 'same-product' | 'ai-video' | 'export';

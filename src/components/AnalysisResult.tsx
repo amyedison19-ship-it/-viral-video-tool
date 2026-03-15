@@ -6,6 +6,7 @@ import ShotsTab from './tabs/ShotsTab';
 import StoryboardTab from './tabs/StoryboardTab';
 import DeepAnalysisTab from './tabs/DeepAnalysisTab';
 import StructureTab from './tabs/StructureTab';
+import SameProductTab from './tabs/SameProductTab';
 import AIVideoTab from './tabs/AIVideoTab';
 import ExportTab from './tabs/ExportTab';
 
@@ -19,6 +20,7 @@ const tabs: { key: TabType; icon: string; label: string }[] = [
   { key: 'storyboard', icon: '📋', label: '分镜脚本' },
   { key: 'deep-analysis', icon: '🧠', label: '深度分析' },
   { key: 'structure', icon: '📊', label: '脚本结构分析' },
+  { key: 'same-product', icon: '🔁', label: '同品复刻' },
   { key: 'ai-video', icon: '✨', label: 'AI 视频生成' },
   { key: 'export', icon: '📥', label: '导出报告' },
 ];
@@ -159,6 +161,7 @@ export default function AnalysisResult({ analysis, onReset }: Props) {
         {activeTab === 'storyboard' && <StoryboardTab analysis={analysis} />}
         {activeTab === 'deep-analysis' && <DeepAnalysisTab analysis={analysis} />}
         {activeTab === 'structure' && <StructureTab analysis={analysis} />}
+        {activeTab === 'same-product' && <SameProductTab analysis={analysis} />}
         {activeTab === 'ai-video' && <AIVideoTab analysis={analysis} />}
         {activeTab === 'export' && <ExportTab analysis={analysis} />}
       </div>

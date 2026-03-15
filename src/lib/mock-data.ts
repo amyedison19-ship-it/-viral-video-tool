@@ -1,4 +1,4 @@
-import { VideoAnalysis, CrossCategoryScript } from './types';
+import { VideoAnalysis, CrossCategoryScript, SameProductScript } from './types';
 
 export function generateMockAnalysis(fileName: string): VideoAnalysis {
   const shots = [
@@ -198,6 +198,22 @@ export function generateMockCrossCategoryScript(productName: string): CrossCateg
         title: 'Set it up in 30 seconds, your cat will love it from day one',
       },
     ],
+  };
+}
+
+export function generateSameProductScript(
+  scenarioName: string,
+  analysis: VideoAnalysis,
+): SameProductScript {
+  return {
+    scenarioName,
+    scenes: analysis.shots.map((shot) => ({
+      type: shot.type,
+      originalDescription: shot.description,
+      newDescription: `【${scenarioName}场景】${shot.description.replace(/画面|镜头|展示/g, (m) => m)}`,
+      narration: shot.narration,
+      shootingTip: `在${scenarioName}场景下重新拍摄，保持相同的构图和节奏`,
+    })),
   };
 }
 
