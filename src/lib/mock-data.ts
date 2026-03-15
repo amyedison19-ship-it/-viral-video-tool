@@ -231,13 +231,28 @@ export function convertSameProductToVideoScript(script: SameProductScript, produ
   };
 }
 
-export function generateVideoPrompt(script: CrossCategoryScript): string {
-  return `## Video Style
+export function generateVideoPrompt(script: CrossCategoryScript, productAppearance?: VideoAnalysis['productAppearance']): string {
+  const productSection = productAppearance ? `## CRITICAL: Product Identity (DO NOT CHANGE)
+The product in this video must be EXACTLY the following - do NOT alter, replace, or substitute with any other product:
+- Product: ${productAppearance.name || script.productName}
+- Brand: ${productAppearance.brand}
+- Category: ${productAppearance.category}
+- Color: ${productAppearance.color}
+- Shape: ${productAppearance.shape}
+- Detailed appearance: ${productAppearance.detailedDescription}
+${productAppearance.distinguishingFeatures.length > 0 ? `- Key features: ${productAppearance.distinguishingFeatures.join('; ')}` : ''}
+
+IMPORTANT: Only the person/model and scene/background should change. The product itself must remain identical in appearance, color, shape, brand, and all details.
+
+` : '';
+
+  return `${productSection}## Video Style
 - Modern, sleek, eye-catching visuals
 - Professional lighting and composition
 - Dynamic camera movements and smooth transitions
 - Fast-paced editing suitable for social media (TikTok, Instagram Reels, YouTube Shorts)
 - Clean, minimalist aesthetic with product focus
+${productAppearance ? `- The product (${productAppearance.name}) must look exactly as described above - same color (${productAppearance.color}), same shape (${productAppearance.shape}), same brand` : ''}
 
 ## Audio Requirements
 - Background music: Upbeat, modern, suitable for social media
@@ -248,6 +263,6 @@ export function generateVideoPrompt(script: CrossCategoryScript): string {
 ${script.scenes.map((scene, i) => `Scene ${i + 1} (${scene.type}): ${scene.englishDescription}
   - Visual: ${scene.recommendation || scene.chineseDescription}
   - Voiceover: "${scene.title}"
-  - Text overlay: "${scene.hook}"`).join('\n\n')}
+  - Text overlay: "${scene.hook}"${scene.type === '产品展示' && productAppearance ? `\n  - PRODUCT: Must show the exact ${productAppearance.name} (${productAppearance.color}, ${productAppearance.shape}) - do NOT substitute with a different product` : ''}`).join('\n\n')}
 `;
 }

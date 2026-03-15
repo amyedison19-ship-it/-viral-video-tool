@@ -46,11 +46,11 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
     return generateMockCrossCategoryScript(productName);
   }, [latestSameProductScript, productName]);
 
-  const [prompt, setPrompt] = useState(generateVideoPrompt(currentScript));
+  const [prompt, setPrompt] = useState(generateVideoPrompt(currentScript, analysis.productAppearance));
 
   useEffect(() => {
-    setPrompt(generateVideoPrompt(currentScript));
-  }, [currentScript]);
+    setPrompt(generateVideoPrompt(currentScript, analysis.productAppearance));
+  }, [currentScript, analysis.productAppearance]);
 
   // Cleanup polling on unmount
   useEffect(() => {

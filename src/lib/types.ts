@@ -29,6 +29,15 @@ export interface VideoAnalysis {
     emotionalTrigger: string;
     targetAudience: string;
   };
+  productAppearance?: {
+    name: string;
+    brand: string;
+    category: string;
+    detailedDescription: string;
+    color: string;
+    shape: string;
+    distinguishingFeatures: string[];
+  };
   hookAnalysis: {
     hookType: string;
     hookDescription: string;

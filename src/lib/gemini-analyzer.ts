@@ -76,6 +76,15 @@ function buildAnalysisPrompt(fileName: string, metadata: VideoMetadata): string 
     "keyPhrases": ["关键金句1", "关键金句2", "关键金句3"],
     "callToAction": "结尾的行动引导话术（完整引用）"
   },
+  "productAppearance": {
+    "name": "产品的完整名称（品牌+型号，如 Sony LinkBuds Clip）",
+    "brand": "产品品牌（如 Sony）",
+    "category": "产品品类（如 耳夹式耳机）",
+    "detailedDescription": "产品的详细外观描述，包括形状、大小、材质、配件等（如：小巧的耳夹式无线耳机，配有圆形充电盒，耳机本体为环形夹耳设计）",
+    "color": "产品颜色（如 浅绿色/薄荷绿）",
+    "shape": "产品形状（如 环形耳夹+圆形充电盒）",
+    "distinguishingFeatures": ["特征1（如 耳机上有SONY品牌标识）", "特征2（如 开放式耳夹设计，不入耳）", "特征3（如 充电盒可打开，内有两个耳机插槽）"]
+  },
   "overallScore": 85,
   "strengths": ["优势1", "优势2", "优势3"],
   "weaknesses": ["不足1", "不足2"],
@@ -90,7 +99,8 @@ function buildAnalysisPrompt(fileName: string, metadata: VideoMetadata): string 
 5. hasProduct：当镜头中出现产品实物时为 true
 6. narration：如果视频有语音，请尽可能准确转录；如果有字幕，请提取字幕内容
 7. overallScore：0-100 分，从完播率、转化力、创意性、节奏感等维度综合评分
-8. 请像一个月薪5万的资深短视频运营专家一样，给出真正有价值、可执行的专业洞察`;
+8. productAppearance：请仔细观察视频中出现的产品，详细描述其外观特征（品牌、颜色、形状、材质、尺寸、配件等），这些信息将用于生成新视频时保持产品一致性
+9. 请像一个月薪5万的资深短视频运营专家一样，给出真正有价值、可执行的专业洞察`;
 }
 
 function sanitizeJsonString(str: string): string {
@@ -205,6 +215,7 @@ function buildVideoAnalysis(
     ? Math.round((productExposureDuration / videoDuration) * 100)
     : 0;
 
+  const productAppearance = p.productAppearance as Record<string, unknown> | undefined;
   const titleAnalysis = p.titleAnalysis as Record<string, unknown> | undefined;
   const hookAnalysis = p.hookAnalysis as Record<string, unknown> | undefined;
   const contentStructure = p.contentStructure as Record<string, unknown> | undefined;
@@ -221,6 +232,15 @@ function buildVideoAnalysis(
     shotCount: shots.length,
     shots,
     optimizationTip: String(p.optimizationTip || '暂无优化建议'),
+    productAppearance: productAppearance ? {
+      name: String(productAppearance.name || ''),
+      brand: String(productAppearance.brand || ''),
+      category: String(productAppearance.category || ''),
+      detailedDescription: String(productAppearance.detailedDescription || ''),
+      color: String(productAppearance.color || ''),
+      shape: String(productAppearance.shape || ''),
+      distinguishingFeatures: (productAppearance.distinguishingFeatures as string[]) || [],
+    } : undefined,
     titleAnalysis: {
       title: String(titleAnalysis?.title || ''),
       keywords: (titleAnalysis?.keywords as string[]) || [],
