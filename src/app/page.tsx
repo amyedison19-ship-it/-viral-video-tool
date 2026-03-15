@@ -140,17 +140,19 @@ export default function Home() {
 
       setProgress(10);
 
-      // Step 2: Upload video in chunks through our proxy (avoids CORS + Vercel size limit)
+      // Step 2: Upload video directly to Gemini (browser → Google, bypasses Vercel size limit)
       step = '上传视频';
       setStatusText('正在上传视频...');
-      const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB chunks for reliable Vercel proxy
+
+      // Gemini resumable upload requires chunks to be multiples of 8MB (8388608 bytes)
+      const CHUNK_GRANULARITY = 8 * 1024 * 1024; // 8MB
       let offset = 0;
       let uploadData: Record<string, unknown> | null = null;
 
       while (offset < file.size) {
-        const end = Math.min(offset + CHUNK_SIZE, file.size);
+        const isLast = offset + CHUNK_GRANULARITY >= file.size;
+        const end = isLast ? file.size : offset + CHUNK_GRANULARITY;
         const chunk = file.slice(offset, end);
-        const isLast = end >= file.size;
 
         let chunkRes: Response | null = null;
         let lastChunkErr = '';
@@ -158,26 +160,26 @@ export default function Home() {
         // Retry each chunk up to 2 times
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
-            chunkRes = await fetch('/api/upload-chunk', {
-              method: 'POST',
+            chunkRes = await fetch(uploadUrl, {
+              method: 'PUT',
               headers: {
-                'x-upload-url': uploadUrl,
-                'x-upload-offset': String(offset),
-                'x-upload-command': isLast ? 'upload, finalize' : 'upload',
+                'Content-Length': String(end - offset),
+                'X-Goog-Upload-Offset': String(offset),
+                'X-Goog-Upload-Command': isLast ? 'upload, finalize' : 'upload',
               },
               body: chunk,
             });
-            if (chunkRes.ok) break;
-            const errData = await chunkRes.json().catch(() => ({ error: `上传失败 (${chunkRes!.status})` }));
-            lastChunkErr = errData.error || `视频上传失败 (${chunkRes.status})`;
-            if (chunkRes.status !== 500 && chunkRes.status !== 503) break; // Only retry server errors
+            if (chunkRes.ok || chunkRes.status === 200) break;
+            const errText = await chunkRes.text().catch(() => '');
+            lastChunkErr = `上传失败 (${chunkRes.status}): ${errText.slice(0, 200)}`;
+            if (chunkRes.status !== 500 && chunkRes.status !== 503) break;
           } catch (fetchErr) {
             lastChunkErr = `上传块失败: ${fetchErr instanceof Error ? fetchErr.message : '网络错误'}`;
           }
           if (attempt < 1) await new Promise(r => setTimeout(r, 1000));
         }
 
-        if (!chunkRes || !chunkRes.ok) {
+        if (!chunkRes || (!chunkRes.ok && chunkRes.status !== 200)) {
           throw new Error(lastChunkErr || '视频上传失败');
         }
 
