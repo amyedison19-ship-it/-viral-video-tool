@@ -1,37 +1,161 @@
 'use client';
 
-import { useState } from 'react';
-import { VideoAnalysis, ShotType } from '@/lib/types';
-import { generateMockCrossCategoryScript, generateVideoPrompt } from '@/lib/mock-data';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { VideoAnalysis, SameProductScript, CrossCategoryScript } from '@/lib/types';
+import { generateMockCrossCategoryScript, generateVideoPrompt, convertSameProductToVideoScript } from '@/lib/mock-data';
+import { typeColors } from '@/lib/shot-colors';
 
-const typeColors: Record<ShotType, string> = {
-  '痛点放大': '#ef4444',
-  '产品展示': '#f97316',
-  '使用场景': '#eab308',
-  '效果对比': '#22c55e',
-  '行动引导': '#3b82f6',
-};
+interface GeneratedVideo {
+  taskId: string;
+  status: 'pending' | 'processing' | 'done' | 'failed';
+  videoUrl?: string;
+  error?: string;
+  elapsed: number;
+}
 
 interface Props {
   analysis: VideoAnalysis;
+  latestSameProductScript?: SameProductScript | null;
 }
 
-export default function AIVideoTab({ analysis }: Props) {
+export default function AIVideoTab({ analysis, latestSameProductScript }: Props) {
   const [model, setModel] = useState<'fast' | 'quality'>('fast');
   const [format, setFormat] = useState<'portrait' | 'landscape'>('portrait');
+  const [duration, setDuration] = useState(5);
   const [isEditing, setIsEditing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedVideos, setGeneratedVideos] = useState<string[]>([]);
+  const [generatedVideos, setGeneratedVideos] = useState<GeneratedVideo[]>([]);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [arkConfigured, setArkConfigured] = useState(true);
+  const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const mockScript = generateMockCrossCategoryScript('猫咪自动饮水机');
-  const [prompt, setPrompt] = useState(generateVideoPrompt(mockScript));
+  // Check API key configuration on mount
+  useEffect(() => {
+    fetch('/api/check-config')
+      .then(res => res.json())
+      .then(data => setArkConfigured(!!data.ark))
+      .catch(() => {});
+  }, []);
+
+  const productName = analysis.titleAnalysis?.title || analysis.fileName || '产品';
+
+  const currentScript: CrossCategoryScript = useMemo(() => {
+    if (latestSameProductScript) {
+      return convertSameProductToVideoScript(latestSameProductScript, productName);
+    }
+    return generateMockCrossCategoryScript(productName);
+  }, [latestSameProductScript, productName]);
+
+  const [prompt, setPrompt] = useState(generateVideoPrompt(currentScript));
+
+  useEffect(() => {
+    setPrompt(generateVideoPrompt(currentScript));
+  }, [currentScript]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+    };
+  }, []);
+
+  const pollTaskStatus = useCallback((taskId: string) => {
+    const startTime = Date.now();
+
+    pollTimerRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/video-task?id=${taskId}`);
+        const data = await res.json();
+
+        if (!res.ok) {
+          setGeneratedVideos(prev => prev.map(v =>
+            v.taskId === taskId ? { ...v, status: 'failed', error: data.error || '查询失败' } : v
+          ));
+          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+          return;
+        }
+
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+
+        // Handle ARK API response format
+        const status = data.status || data.task_status;
+        if (status === 'succeeded' || status === 'done' || status === 'completed') {
+          // Extract video URL from response - try multiple possible paths
+          const videoUrl = data.video?.url
+            || data.content?.[0]?.video_url?.url
+            || data.content?.[0]?.url
+            || data.output?.video_url
+            || data.video_url
+            || '';
+
+          setGeneratedVideos(prev => prev.map(v =>
+            v.taskId === taskId ? { ...v, status: 'done', videoUrl, elapsed } : v
+          ));
+          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+        } else if (status === 'failed' || status === 'error') {
+          setGeneratedVideos(prev => prev.map(v =>
+            v.taskId === taskId ? { ...v, status: 'failed', error: data.error?.message || '生成失败', elapsed } : v
+          ));
+          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+        } else {
+          // Still processing
+          setGeneratedVideos(prev => prev.map(v =>
+            v.taskId === taskId ? { ...v, status: 'processing', elapsed } : v
+          ));
+        }
+      } catch {
+        // Network error, keep polling
+      }
+    }, 5000);
+  }, []);
 
   const handleGenerate = async () => {
     setIsGenerating(true);
-    // Simulate generation
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    setGeneratedVideos(['video_1.mp4', 'video_2.mp4']);
-    setIsGenerating(false);
+    setErrorMsg('');
+
+    const aspectRatio = format === 'portrait' ? '9:16' : '16:9';
+
+    try {
+      const res = await fetch('/api/generate-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          model,
+          aspectRatio,
+          duration,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setErrorMsg(data.error || '请求失败');
+        setIsGenerating(false);
+        return;
+      }
+
+      // Extract task ID from response
+      const taskId = data.id || data.task_id;
+      if (!taskId) {
+        setErrorMsg('未获取到任务 ID，请检查 API 配置');
+        setIsGenerating(false);
+        return;
+      }
+
+      const newVideo: GeneratedVideo = {
+        taskId,
+        status: 'pending',
+        elapsed: 0,
+      };
+
+      setGeneratedVideos(prev => [newVideo, ...prev]);
+      pollTaskStatus(taskId);
+    } catch (err) {
+      setErrorMsg(`请求异常: ${String(err)}`);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   return (
@@ -41,7 +165,7 @@ export default function AIVideoTab({ analysis }: Props) {
           <span>✨</span> AI 生成短视频
         </h2>
         <span className="text-xs px-3 py-1 rounded" style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
-          Powered by Fal.ai | 由 Fal.ai 提供技术支持
+          Powered by Seedance | 即梦 AI 视频生成
         </span>
       </div>
 
@@ -49,21 +173,24 @@ export default function AIVideoTab({ analysis }: Props) {
       <div className="rounded-xl p-4 mb-6" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
         <div className="flex items-center gap-2 mb-3">
           <span className="text-green-400">✓</span>
-          <span className="font-medium">已改编脚本：{mockScript.productName}</span>
+          <span className="font-medium">
+            {latestSameProductScript
+              ? `已更新脚本：${latestSameProductScript.scenarioName}场景 - ${currentScript.productName}`
+              : `已改编脚本：${currentScript.productName}`}
+          </span>
         </div>
         <div className="flex gap-4 overflow-x-auto pb-2">
-          {mockScript.scenes.map((scene, i) => (
+          {currentScript.scenes.map((scene, i) => (
             <div key={i} className="shrink-0 w-[420px] rounded-lg p-3" style={{ background: 'var(--bg-secondary)' }}>
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xs px-2 py-0.5 rounded" style={{ background: typeColors[scene.type] }}>
-                  Pain 疼痛
+                  {scene.type}
                 </span>
               </div>
               <p className="text-sm mb-2">{scene.englishDescription}</p>
               <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                 {scene.chineseDescription}
               </p>
-              {/* Progress bar */}
               <div className="mt-2 w-full h-1 rounded-full" style={{ background: 'var(--border-color)' }}>
                 <div className="h-full rounded-full" style={{ width: '60%', background: 'var(--accent-blue)' }} />
               </div>
@@ -82,7 +209,7 @@ export default function AIVideoTab({ analysis }: Props) {
               className="text-sm px-3 py-1 rounded transition-colors"
               style={{ background: 'var(--bg-card)', color: 'var(--accent-blue)' }}
             >
-              ✏️ {isEditing ? '完成编辑' : '完成编辑'}
+              {isEditing ? '完成编辑' : '编辑提示词'}
             </button>
           </div>
           <textarea
@@ -92,7 +219,7 @@ export default function AIVideoTab({ analysis }: Props) {
             className="w-full h-[400px] p-4 rounded-xl text-sm leading-relaxed font-mono outline-none resize-none"
             style={{
               background: 'var(--bg-card)',
-              border: '1px solid var(--border-color)',
+              border: `1px solid ${isEditing ? 'var(--accent-blue)' : 'var(--border-color)'}`,
               color: 'var(--text-primary)',
             }}
           />
@@ -116,12 +243,11 @@ export default function AIVideoTab({ analysis }: Props) {
                   <div className={`w-4 h-4 rounded-full border-2 ${model === 'fast' ? 'border-purple-500' : 'border-gray-500'}`}>
                     {model === 'fast' && <div className="w-2 h-2 rounded-full m-0.5" style={{ background: 'var(--accent-purple)' }} />}
                   </div>
-                  <span className="font-medium text-sm">Kie.ai Veo3.1 (Fast)</span>
+                  <span className="font-medium text-sm">Seedance Lite</span>
                 </div>
-                <p className="text-xs ml-6" style={{ color: 'var(--text-secondary)' }}>Kie.ai Veo3.1（快速版）</p>
+                <p className="text-xs ml-6" style={{ color: 'var(--text-secondary)' }}>即梦轻量版（快速）</p>
                 <span className="inline-block mt-1 ml-6 text-xs px-2 py-0.5 rounded" style={{ background: 'rgba(34,197,94,0.2)', color: '#22c55e' }}>推荐</span>
-                <p className="text-xs ml-6 mt-1" style={{ color: 'var(--text-secondary)' }}>快速生成，高质量</p>
-                <p className="text-xs ml-6" style={{ color: 'var(--text-secondary)' }}>~$0.30/5秒</p>
+                <p className="text-xs ml-6 mt-1" style={{ color: 'var(--text-secondary)' }}>生成速度快，质量好</p>
               </button>
               <button
                 onClick={() => setModel('quality')}
@@ -135,21 +261,30 @@ export default function AIVideoTab({ analysis }: Props) {
                   <div className={`w-4 h-4 rounded-full border-2 ${model === 'quality' ? 'border-purple-500' : 'border-gray-500'}`}>
                     {model === 'quality' && <div className="w-2 h-2 rounded-full m-0.5" style={{ background: 'var(--accent-purple)' }} />}
                   </div>
-                  <span className="font-medium text-sm">Kie.ai Veo3.1 (Quality)</span>
+                  <span className="font-medium text-sm">Seedance Pro</span>
                 </div>
-                <p className="text-xs ml-6" style={{ color: 'var(--text-secondary)' }}>Kie.ai Veo3.1（质量）</p>
-                <p className="text-xs ml-6 mt-1" style={{ color: 'var(--text-secondary)' }}>更高质量，更长时间</p>
-                <p className="text-xs ml-6" style={{ color: 'var(--text-secondary)' }}>~$0.50/5秒</p>
+                <p className="text-xs ml-6" style={{ color: 'var(--text-secondary)' }}>即梦专业版（高质量）</p>
+                <p className="text-xs ml-6 mt-1" style={{ color: 'var(--text-secondary)' }}>1080P 高清，多镜头叙事</p>
               </button>
             </div>
           </div>
 
-          {/* Audio note */}
-          <div className="rounded-lg p-3 flex items-center gap-2" style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)' }}>
-            <span>🎵</span>
-            <span className="text-sm" style={{ color: 'var(--accent-blue)' }}>
-              所有模型均支持 AI 配音，自动生成英语语音
-            </span>
+          {/* Duration selection */}
+          <div>
+            <h3 className="font-medium mb-3">视频时长: {duration} 秒</h3>
+            <input
+              type="range"
+              min={2}
+              max={12}
+              step={1}
+              value={duration}
+              onChange={(e) => setDuration(Number(e.target.value))}
+              className="w-full"
+            />
+            <div className="flex justify-between text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+              <span>2秒</span>
+              <span>12秒</span>
+            </div>
           </div>
 
           {/* Format selection */}
@@ -179,10 +314,26 @@ export default function AIVideoTab({ analysis }: Props) {
             </div>
           </div>
 
+          {/* Config warning */}
+          {!arkConfigured && (
+            <div className="rounded-lg p-3 flex items-center gap-2" style={{ background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)' }}>
+              <span className="text-sm" style={{ color: '#eab308' }}>
+                未配置 ARK_API_KEY — 请在 .env 文件中设置火山方舟 API Key，然后重启服务器
+              </span>
+            </div>
+          )}
+
+          {/* Error message */}
+          {errorMsg && (
+            <div className="rounded-lg p-3 flex items-center gap-2" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
+              <span className="text-sm" style={{ color: '#ef4444' }}>{errorMsg}</span>
+            </div>
+          )}
+
           {/* Generate button */}
           <button
             onClick={handleGenerate}
-            disabled={isGenerating}
+            disabled={isGenerating || !arkConfigured}
             className="w-full py-4 rounded-xl text-white font-medium text-lg transition-all"
             style={{
               background: isGenerating
@@ -193,30 +344,128 @@ export default function AIVideoTab({ analysis }: Props) {
             {isGenerating ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                生成中...
+                提交中...
               </span>
             ) : (
-              <span>✨ 生成短视频 (Kie.ai Veo3.1)</span>
+              <span>✨ 生成短视频（即梦 Seedance）</span>
             )}
           </button>
 
           {/* Generated videos */}
           {generatedVideos.length > 0 && (
-            <div className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-              <h3 className="font-medium mb-3 flex items-center gap-2">
-                <span className="text-green-400">✓</span>
-                视频生成完成
-              </h3>
-              <div className="space-y-2">
-                {generatedVideos.map((v, i) => (
-                  <div key={i} className="flex items-center justify-between p-3 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
-                    <span className="text-sm">🎬 {v}</span>
-                    <button className="text-xs px-3 py-1 rounded" style={{ background: 'var(--accent-blue)' }}>
-                      下载
-                    </button>
+            <div className="space-y-4">
+              {generatedVideos.map((video) => (
+                <div key={video.taskId} className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-medium flex items-center gap-2">
+                      {video.status === 'done' && <span className="text-green-400">✓</span>}
+                      {video.status === 'failed' && <span className="text-red-400">✗</span>}
+                      {(video.status === 'pending' || video.status === 'processing') && (
+                        <span className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin inline-block" />
+                      )}
+                      <span className="text-sm">
+                        {video.status === 'done' ? '视频生成完成' :
+                         video.status === 'failed' ? '生成失败' :
+                         '视频生成中...'}
+                      </span>
+                    </h3>
+                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                      {video.elapsed > 0 && `${video.elapsed}秒`}
+                    </span>
                   </div>
-                ))}
-              </div>
+
+                  {/* Status badge */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>
+                      Task: {video.taskId.slice(0, 16)}...
+                    </span>
+                    <span className="text-xs px-2 py-0.5 rounded" style={{
+                      background: video.status === 'done' ? 'rgba(34,197,94,0.15)' :
+                                  video.status === 'failed' ? 'rgba(239,68,68,0.15)' :
+                                  'rgba(234,179,8,0.15)',
+                      color: video.status === 'done' ? '#22c55e' :
+                             video.status === 'failed' ? '#ef4444' :
+                             '#eab308',
+                    }}>
+                      {video.status === 'done' ? '已完成' :
+                       video.status === 'failed' ? '失败' :
+                       '处理中'}
+                    </span>
+                  </div>
+
+                  {/* Error message */}
+                  {video.status === 'failed' && video.error && (
+                    <p className="text-xs mb-3" style={{ color: '#ef4444' }}>{video.error}</p>
+                  )}
+
+                  {/* Video player */}
+                  {video.status === 'done' && video.videoUrl && (
+                    <div className="mb-3">
+                      <video
+                        src={video.videoUrl}
+                        controls
+                        className="w-full rounded-lg"
+                        style={{ maxHeight: '400px' }}
+                      />
+                      <button
+                        onClick={async () => {
+                          try {
+                            const res = await fetch(video.videoUrl!);
+                            const blob = await res.blob();
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `seedance-video-${video.taskId}.mp4`;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                          } catch {
+                            window.open(video.videoUrl, '_blank');
+                          }
+                        }}
+                        className="inline-block mt-2 text-sm px-4 py-2 rounded-lg font-medium text-white cursor-pointer"
+                        style={{ background: 'var(--accent-blue)' }}
+                      >
+                        下载视频
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Processing progress bar */}
+                  {(video.status === 'pending' || video.status === 'processing') && (
+                    <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: 'var(--border-color)' }}>
+                      <div
+                        className="h-full rounded-full transition-all duration-1000"
+                        style={{
+                          width: `${Math.min(95, (video.elapsed / 120) * 100)}%`,
+                          background: 'linear-gradient(90deg, #8b5cf6, #a855f7)',
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {/* Download script button */}
+              <button
+                className="w-full py-2.5 rounded-lg text-sm font-medium cursor-pointer hover:opacity-80 transition-colors text-white"
+                style={{ background: 'var(--accent-blue)' }}
+                onClick={() => {
+                  const content = `视频生成脚本\n${'='.repeat(40)}\n\n${prompt}`;
+                  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `video-script-${Date.now()}.txt`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                下载完整脚本提示词
+              </button>
             </div>
           )}
         </div>

@@ -1,14 +1,7 @@
 'use client';
 
-import { VideoAnalysis, ShotType } from '@/lib/types';
-
-const typeColors: Record<ShotType, string> = {
-  '痛点放大': '#ef4444',
-  '产品展示': '#f97316',
-  '使用场景': '#eab308',
-  '效果对比': '#22c55e',
-  '行动引导': '#3b82f6',
-};
+import { VideoAnalysis } from '@/lib/types';
+import { typeColors } from '@/lib/shot-colors';
 
 interface Props {
   analysis: VideoAnalysis;
@@ -68,17 +61,18 @@ export default function StoryboardTab({ analysis }: Props) {
                   </td>
                   <td className="text-sm max-w-[300px]">{shot.description}</td>
                   <td>
-                    <div
-                      className="w-16 h-20 rounded flex items-center justify-center text-xs"
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={shot.thumbnailUrl}
+                      alt={`镜头 #${shot.id}`}
+                      className="w-16 h-20 rounded object-cover"
                       style={{ background: `hsl(${shot.id * 30}, 40%, 25%)` }}
-                    >
-                      截图
-                    </div>
+                    />
                   </td>
                   <td className="text-sm max-w-[300px]">{shot.narration}</td>
                   <td className="text-center">
                     {shot.hasProduct ? (
-                      <span className="text-red-400 text-lg">×</span>
+                      <span className="text-green-400 text-lg">✓</span>
                     ) : (
                       <span className="text-red-400 text-lg">×</span>
                     )}

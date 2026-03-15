@@ -1,4 +1,4 @@
-import { VideoAnalysis, CrossCategoryScript } from './types';
+import { VideoAnalysis, CrossCategoryScript, SameProductScript } from './types';
 
 export function generateMockAnalysis(fileName: string): VideoAnalysis {
   const shots = [
@@ -119,6 +119,48 @@ export function generateMockAnalysis(fileName: string): VideoAnalysis {
     shotCount: 15,
     shots,
     optimizationTip: '产品首现时间为16.9秒，建议在5秒内展示产品',
+    titleAnalysis: {
+      title: '洗完的衣服穿在身上发痒？教你一招搞定',
+      keywords: ['洗衣机清洁', '衣服发痒', '细菌', '健康'],
+      emotionalTrigger: '恐惧+厌恶感',
+      targetAudience: '家庭主妇、注重健康的年轻人',
+    },
+    hookAnalysis: {
+      hookType: '恐惧型',
+      hookDescription: '通过展示皮肤伤口的特写画面引发强烈不适感，制造恐惧心理',
+      hookDuration: 3,
+      effectiveness: '开头3秒使用恐惧型钩子，能有效抓住注意力，但画面可能过于刺激',
+    },
+    contentStructure: {
+      pattern: '痛点-方案-效果',
+      phases: [
+        { name: '痛点放大', startTime: 0, endTime: 16.9, purpose: '引发恐惧和焦虑', technique: '视觉冲击+数据佐证' },
+        { name: '产品展示', startTime: 16.9, endTime: 25.9, purpose: '提供解决方案', technique: '产品特写+使用演示' },
+        { name: '效果验证', startTime: 25.9, endTime: 32, purpose: '建立信任', technique: '前后对比' },
+        { name: '行动引导', startTime: 32, endTime: 34, purpose: '促进转化', technique: '限时优惠+购买链接' },
+      ],
+    },
+    emotionCurve: {
+      overall: '先制造焦虑恐惧，再提供解决方案带来安心感',
+      peaks: [
+        { time: 3, emotion: '恐惧', trigger: '皮肤伤口特写' },
+        { time: 10, emotion: '厌恶', trigger: '脏污洗衣机内筒' },
+        { time: 20, emotion: '期待', trigger: '产品使用演示' },
+        { time: 28, emotion: '满足', trigger: '清洁前后对比' },
+      ],
+      rhythm: '先抑后扬',
+    },
+    scriptAnalysis: {
+      fullScript: '洗完的衣服穿在身上发痒，教你一招搞定。如果你的洗衣机超过半年不清洁，一台使用半年差不清洁的洗衣机，污垢细菌内容比马桶还要多5倍。这些细菌不仅会让你身上发痒，还会伤害家比较弱的老人和小孩。只需要一招就能搞定，这款洗衣机槽清洁剂，直接倒入洗衣机内，活性酶配方深层清洁，选择桶自洁模式运行一次就干净了。看看这个效果，简直焕然一新。现在下单买二送一，点击下方链接立即购买，限时优惠。',
+      wordCount: 150,
+      paceWordsPerSecond: 4.4,
+      toneStyle: '口语化+恐惧营销',
+      keyPhrases: ['教你一招搞定', '比马桶还要多5倍', '焕然一新', '买二送一'],
+      callToAction: '点击下方链接立即购买，限时优惠',
+    },
+    overallScore: 78,
+    strengths: ['开头钩子吸引力强', '痛点挖掘深入', '产品展示清晰', '结尾有行动引导'],
+    weaknesses: ['产品出现时间过晚(16.9秒)', '产品露出占比偏低(21%)'],
   };
 }
 
@@ -156,6 +198,36 @@ export function generateMockCrossCategoryScript(productName: string): CrossCateg
         title: 'Set it up in 30 seconds, your cat will love it from day one',
       },
     ],
+  };
+}
+
+export function generateSameProductScript(
+  scenarioName: string,
+  analysis: VideoAnalysis,
+): SameProductScript {
+  return {
+    scenarioName,
+    scenes: analysis.shots.map((shot) => ({
+      type: shot.type,
+      originalDescription: shot.description,
+      newDescription: `【${scenarioName}场景】${shot.description.replace(/画面|镜头|展示/g, (m) => m)}`,
+      narration: shot.narration,
+      shootingTip: `在${scenarioName}场景下重新拍摄，保持相同的构图和节奏`,
+    })),
+  };
+}
+
+export function convertSameProductToVideoScript(script: SameProductScript, productName: string): CrossCategoryScript {
+  return {
+    productName,
+    scenes: script.scenes.map((scene) => ({
+      type: scene.type,
+      englishDescription: scene.newDescription,
+      chineseDescription: scene.newDescription,
+      hook: scene.type,
+      title: scene.narration || scene.newDescription,
+      recommendation: scene.shootingTip,
+    })),
   };
 }
 

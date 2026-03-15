@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '100mb',
     },
   },
+  serverExternalPackages: ['fluent-ffmpeg', '@google/generative-ai'],
 };
 
 export default nextConfig;
