@@ -20,22 +20,31 @@ export async function POST(request: NextRequest) {
 
     const chunk = await request.arrayBuffer();
 
+    const headers: Record<string, string> = {
+      'Content-Length': String(chunk.byteLength),
+      'X-Goog-Upload-Offset': uploadOffset,
+      'X-Goog-Upload-Command': uploadCommand,
+    };
+
+    console.log('Uploading chunk to Gemini:', {
+      offset: uploadOffset,
+      command: uploadCommand,
+      chunkSize: chunk.byteLength,
+      uploadUrl: uploadUrl.slice(0, 80) + '...',
+    });
+
     const res = await fetch(uploadUrl, {
       method: 'PUT',
-      headers: {
-        'Content-Length': String(chunk.byteLength),
-        'X-Goog-Upload-Offset': uploadOffset,
-        'X-Goog-Upload-Command': uploadCommand,
-      },
+      headers,
       body: chunk,
     });
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      console.error('Gemini chunk upload error:', res.status, errText);
+      console.error('Gemini chunk upload error:', res.status, 'offset:', uploadOffset, 'command:', uploadCommand, 'chunkSize:', chunk.byteLength, 'body:', errText);
       return NextResponse.json(
-        { error: `上传块失败: ${res.status}` },
-        { status: 500 }
+        { error: `上传块失败 (${res.status}): ${errText.slice(0, 200) || '未知错误'}` },
+        { status: res.status }
       );
     }
 

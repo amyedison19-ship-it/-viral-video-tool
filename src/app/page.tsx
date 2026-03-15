@@ -143,7 +143,7 @@ export default function Home() {
       // Step 2: Upload video in chunks through our proxy (avoids CORS + Vercel size limit)
       step = '上传视频';
       setStatusText('正在上传视频...');
-      const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB chunks to stay under Vercel's 4.5MB limit
+      const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB chunks for reliable Vercel proxy
       let offset = 0;
       let uploadData: Record<string, unknown> | null = null;
 
@@ -152,24 +152,33 @@ export default function Home() {
         const chunk = file.slice(offset, end);
         const isLast = end >= file.size;
 
-        let chunkRes: Response;
-        try {
-          chunkRes = await fetch('/api/upload-chunk', {
-            method: 'POST',
-            headers: {
-              'x-upload-url': uploadUrl,
-              'x-upload-offset': String(offset),
-              'x-upload-command': isLast ? 'upload, finalize' : 'upload',
-            },
-            body: chunk,
-          });
-        } catch (fetchErr) {
-          throw new Error(`上传块失败 (offset=${offset}): ${fetchErr instanceof Error ? fetchErr.message : '网络错误'}`);
+        let chunkRes: Response | null = null;
+        let lastChunkErr = '';
+
+        // Retry each chunk up to 2 times
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            chunkRes = await fetch('/api/upload-chunk', {
+              method: 'POST',
+              headers: {
+                'x-upload-url': uploadUrl,
+                'x-upload-offset': String(offset),
+                'x-upload-command': isLast ? 'upload, finalize' : 'upload',
+              },
+              body: chunk,
+            });
+            if (chunkRes.ok) break;
+            const errData = await chunkRes.json().catch(() => ({ error: `上传失败 (${chunkRes!.status})` }));
+            lastChunkErr = errData.error || `视频上传失败 (${chunkRes.status})`;
+            if (chunkRes.status !== 500 && chunkRes.status !== 503) break; // Only retry server errors
+          } catch (fetchErr) {
+            lastChunkErr = `上传块失败: ${fetchErr instanceof Error ? fetchErr.message : '网络错误'}`;
+          }
+          if (attempt < 1) await new Promise(r => setTimeout(r, 1000));
         }
 
-        if (!chunkRes.ok) {
-          const chunkErr = await chunkRes.json().catch(() => ({ error: `上传失败 (${chunkRes.status})` }));
-          throw new Error(chunkErr.error || `视频上传失败 (${chunkRes.status})`);
+        if (!chunkRes || !chunkRes.ok) {
+          throw new Error(lastChunkErr || '视频上传失败');
         }
 
         if (isLast) {
