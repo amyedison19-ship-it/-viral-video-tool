@@ -105,80 +105,22 @@ export default function Home() {
       const metadata = await getVideoMetadata(file);
       setProgress(5);
 
-      // Step 1: Init resumable upload (small JSON, no size limit issues)
-      step = '初始化上传';
-      setStatusText('正在初始化上传...');
-      let initRes: Response;
-      try {
-        initRes = await fetch('/api/init-upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fileName: file.name,
-            fileSize: file.size,
-            mimeType: file.type || 'video/mp4',
-          }),
-        });
-      } catch (fetchErr) {
-        throw new Error(`初始化上传请求失败: ${fetchErr instanceof Error ? fetchErr.message : '网络错误'}`);
-      }
-
-      if (!initRes.ok) {
-        const ct = initRes.headers.get('content-type') || '';
-        if (ct.includes('application/json')) {
-          const initData = await initRes.json();
-          throw new Error(initData.error || `初始化上传失败 (${initRes.status})`);
-        } else {
-          const text = await initRes.text();
-          console.error('init-upload non-JSON:', initRes.status, text.slice(0, 300));
-          throw new Error(`初始化上传失败 (${initRes.status})，服务端返回非JSON`);
-        }
-      }
-
-      const { uploadUrl } = await initRes.json();
-      if (!uploadUrl) throw new Error('未获取到上传地址');
-
-      setProgress(10);
-
-      // Step 2: Upload video - try direct browser upload first, fall back to server proxy
+      // Step 1 & 2: Upload video
       step = '上传视频';
       setStatusText('正在上传视频...');
-      setProgress(20);
+      setProgress(15);
 
       let uploadData: Record<string, unknown> | null = null;
-      let directUploadAttempted = false;
 
-      // Try direct browser upload (bypasses Vercel 4.5MB body limit)
-      try {
-        directUploadAttempted = true;
-        const directRes = await fetch(uploadUrl, {
-          method: 'PUT',
-          headers: {
-            'Content-Length': String(file.size),
-            'X-Goog-Upload-Offset': '0',
-            'X-Goog-Upload-Command': 'upload, finalize',
-          },
-          body: file,
-        });
-        if (directRes.ok) {
-          uploadData = await directRes.json();
-          console.log('Direct upload to Gemini succeeded');
-        } else {
-          console.warn('Direct upload returned non-ok:', directRes.status);
-        }
-      } catch (directErr) {
-        console.warn('Direct upload error (likely CORS):', directErr);
-      }
-
-      // Fallback: proxy through server
-      // If direct upload was attempted, we need a FRESH upload URL (the old one is consumed)
-      if (!uploadData) {
-        let proxyUploadUrl = uploadUrl;
-
-        if (directUploadAttempted) {
-          // Get a fresh upload URL since the previous one may have been consumed
-          setStatusText('正在重新初始化上传...');
-          const freshInitRes = await fetch('/api/init-upload', {
+      // Strategy A: For small files (< 4MB), use direct server proxy (init + upload-chunk)
+      // Strategy B: For larger files, upload via Vercel Blob to bypass 4.5MB limit
+      if (file.size <= 4 * 1024 * 1024) {
+        // Small file: init resumable upload then proxy through server
+        step = '初始化上传';
+        setStatusText('正在初始化上传...');
+        let initRes: Response;
+        try {
+          initRes = await fetch('/api/init-upload', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -187,23 +129,33 @@ export default function Home() {
               mimeType: file.type || 'video/mp4',
             }),
           });
-
-          if (!freshInitRes.ok) {
-            throw new Error('重新初始化上传失败');
-          }
-
-          const freshData = await freshInitRes.json();
-          proxyUploadUrl = freshData.uploadUrl;
-          if (!proxyUploadUrl) throw new Error('未获取到新的上传地址');
+        } catch (fetchErr) {
+          throw new Error(`初始化上传请求失败: ${fetchErr instanceof Error ? fetchErr.message : '网络错误'}`);
         }
 
-        setStatusText('正在通过服务端上传视频...');
+        if (!initRes.ok) {
+          const ct = initRes.headers.get('content-type') || '';
+          if (ct.includes('application/json')) {
+            const initData = await initRes.json();
+            throw new Error(initData.error || `初始化上传失败 (${initRes.status})`);
+          } else {
+            const text = await initRes.text();
+            console.error('init-upload non-JSON:', initRes.status, text.slice(0, 300));
+            throw new Error(`初始化上传失败 (${initRes.status})，服务端返回非JSON`);
+          }
+        }
 
-        // Single chunk through proxy (works for files within Vercel body limit)
+        const { uploadUrl } = await initRes.json();
+        if (!uploadUrl) throw new Error('未获取到上传地址');
+
+        step = '上传视频';
+        setStatusText('正在上传视频...');
+        setProgress(20);
+
         const uploadRes = await fetch('/api/upload-chunk', {
           method: 'POST',
           headers: {
-            'x-upload-url': proxyUploadUrl,
+            'x-upload-url': uploadUrl,
             'x-upload-offset': '0',
             'x-upload-command': 'upload, finalize',
           },
@@ -216,6 +168,43 @@ export default function Home() {
         }
 
         uploadData = await uploadRes.json();
+      } else {
+        // Large file: upload to Vercel Blob first, then server transfers to Gemini
+        setStatusText('正在上传视频到云存储...');
+
+        const { upload } = await import('@vercel/blob/client');
+
+        const blob = await upload(file.name, file, {
+          access: 'public',
+          handleUploadUrl: '/api/blob-upload',
+          onUploadProgress: (e) => {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            setProgress(20 + (pct / 100) * 15);
+            setStatusText(`正在上传视频... ${pct}%`);
+          },
+        });
+
+        setProgress(35);
+        setStatusText('正在传输到 Gemini...');
+
+        // Server downloads from Blob and uploads to Gemini (server-to-server, no size limit)
+        const transferRes = await fetch('/api/upload-via-blob', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            blobUrl: blob.url,
+            fileName: file.name,
+            fileSize: file.size,
+            mimeType: file.type || 'video/mp4',
+          }),
+        });
+
+        if (!transferRes.ok) {
+          const errData = await transferRes.json().catch(() => ({ error: `传输失败 (${transferRes.status})` }));
+          throw new Error(errData.error || `视频传输到 Gemini 失败 (${transferRes.status})`);
+        }
+
+        uploadData = await transferRes.json();
       }
 
       const fileUri = (uploadData as Record<string, Record<string, string>>)?.file?.uri;
