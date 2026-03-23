@@ -140,34 +140,93 @@ export default function Home() {
 
       setProgress(10);
 
-      // Step 2: Upload video through server proxy as single "upload, finalize" chunk
-      // Single chunk = last chunk = no 8MB granularity restriction from Gemini
+      // Step 2: Upload video - try direct browser upload first, fall back to server proxy
       step = '上传视频';
       setStatusText('正在上传视频...');
       setProgress(20);
 
-      const uploadRes = await fetch('/api/upload-chunk', {
-        method: 'POST',
-        headers: {
-          'x-upload-url': uploadUrl,
-          'x-upload-offset': '0',
-          'x-upload-command': 'upload, finalize',
-        },
-        body: file,
-      });
+      let uploadData: Record<string, unknown> | null = null;
 
-      if (!uploadRes.ok) {
-        const errData = await uploadRes.json().catch(() => ({ error: `上传失败 (${uploadRes.status})` }));
-        throw new Error(errData.error || `视频上传失败 (${uploadRes.status})`);
+      // Try direct browser upload (bypasses Vercel 4.5MB body limit)
+      try {
+        const directRes = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Length': String(file.size),
+            'X-Goog-Upload-Offset': '0',
+            'X-Goog-Upload-Command': 'upload, finalize',
+          },
+          body: file,
+        });
+        if (directRes.ok) {
+          uploadData = await directRes.json();
+        } else {
+          console.warn('Direct upload failed:', directRes.status, '- falling back to server proxy');
+        }
+      } catch (directErr) {
+        console.warn('Direct upload error (CORS or network):', directErr, '- falling back to server proxy');
       }
 
-      const uploadData = await uploadRes.json();
+      // Fallback: proxy through server (works for files < 4.5MB)
+      if (!uploadData) {
+        if (file.size > 4 * 1024 * 1024) {
+          // For large files, try chunked upload through proxy
+          const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB per chunk
+          const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+          for (let i = 0; i < totalChunks; i++) {
+            const start = i * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, file.size);
+            const chunk = file.slice(start, end);
+            const isLast = i === totalChunks - 1;
+
+            const chunkRes = await fetch('/api/upload-chunk', {
+              method: 'POST',
+              headers: {
+                'x-upload-url': uploadUrl,
+                'x-upload-offset': String(start),
+                'x-upload-command': isLast ? 'upload, finalize' : 'upload',
+              },
+              body: chunk,
+            });
+
+            if (!chunkRes.ok) {
+              const errData = await chunkRes.json().catch(() => ({ error: `上传失败 (${chunkRes.status})` }));
+              throw new Error(errData.error || `视频上传失败 (${chunkRes.status})`);
+            }
+
+            if (isLast) {
+              uploadData = await chunkRes.json();
+            }
+
+            setProgress(20 + ((i + 1) / totalChunks) * 25);
+            setStatusText(`正在上传视频... ${Math.round(((i + 1) / totalChunks) * 100)}%`);
+          }
+        } else {
+          // Small file: single chunk through proxy
+          const uploadRes = await fetch('/api/upload-chunk', {
+            method: 'POST',
+            headers: {
+              'x-upload-url': uploadUrl,
+              'x-upload-offset': '0',
+              'x-upload-command': 'upload, finalize',
+            },
+            body: file,
+          });
+
+          if (!uploadRes.ok) {
+            const errData = await uploadRes.json().catch(() => ({ error: `上传失败 (${uploadRes.status})` }));
+            throw new Error(errData.error || `视频上传失败 (${uploadRes.status})`);
+          }
+
+          uploadData = await uploadRes.json();
+        }
+      }
+
       const fileUri = (uploadData as Record<string, Record<string, string>>)?.file?.uri;
       if (!fileUri) {
         throw new Error('上传成功但未获取到文件 URI');
       }
-
-      setProgress(50);
 
       setProgress(50);
 
