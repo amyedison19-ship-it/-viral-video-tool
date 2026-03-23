@@ -146,9 +146,11 @@ export default function Home() {
       setProgress(20);
 
       let uploadData: Record<string, unknown> | null = null;
+      let directUploadAttempted = false;
 
       // Try direct browser upload (bypasses Vercel 4.5MB body limit)
       try {
+        directUploadAttempted = true;
         const directRes = await fetch(uploadUrl, {
           method: 'PUT',
           headers: {
@@ -160,67 +162,60 @@ export default function Home() {
         });
         if (directRes.ok) {
           uploadData = await directRes.json();
+          console.log('Direct upload to Gemini succeeded');
         } else {
-          console.warn('Direct upload failed:', directRes.status, '- falling back to server proxy');
+          console.warn('Direct upload returned non-ok:', directRes.status);
         }
       } catch (directErr) {
-        console.warn('Direct upload error (CORS or network):', directErr, '- falling back to server proxy');
+        console.warn('Direct upload error (likely CORS):', directErr);
       }
 
-      // Fallback: proxy through server (works for files < 4.5MB)
+      // Fallback: proxy through server
+      // If direct upload was attempted, we need a FRESH upload URL (the old one is consumed)
       if (!uploadData) {
-        if (file.size > 4 * 1024 * 1024) {
-          // For large files, try chunked upload through proxy
-          const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB per chunk
-          const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        let proxyUploadUrl = uploadUrl;
 
-          for (let i = 0; i < totalChunks; i++) {
-            const start = i * CHUNK_SIZE;
-            const end = Math.min(start + CHUNK_SIZE, file.size);
-            const chunk = file.slice(start, end);
-            const isLast = i === totalChunks - 1;
-
-            const chunkRes = await fetch('/api/upload-chunk', {
-              method: 'POST',
-              headers: {
-                'x-upload-url': uploadUrl,
-                'x-upload-offset': String(start),
-                'x-upload-command': isLast ? 'upload, finalize' : 'upload',
-              },
-              body: chunk,
-            });
-
-            if (!chunkRes.ok) {
-              const errData = await chunkRes.json().catch(() => ({ error: `上传失败 (${chunkRes.status})` }));
-              throw new Error(errData.error || `视频上传失败 (${chunkRes.status})`);
-            }
-
-            if (isLast) {
-              uploadData = await chunkRes.json();
-            }
-
-            setProgress(20 + ((i + 1) / totalChunks) * 25);
-            setStatusText(`正在上传视频... ${Math.round(((i + 1) / totalChunks) * 100)}%`);
-          }
-        } else {
-          // Small file: single chunk through proxy
-          const uploadRes = await fetch('/api/upload-chunk', {
+        if (directUploadAttempted) {
+          // Get a fresh upload URL since the previous one may have been consumed
+          setStatusText('正在重新初始化上传...');
+          const freshInitRes = await fetch('/api/init-upload', {
             method: 'POST',
-            headers: {
-              'x-upload-url': uploadUrl,
-              'x-upload-offset': '0',
-              'x-upload-command': 'upload, finalize',
-            },
-            body: file,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fileName: file.name,
+              fileSize: file.size,
+              mimeType: file.type || 'video/mp4',
+            }),
           });
 
-          if (!uploadRes.ok) {
-            const errData = await uploadRes.json().catch(() => ({ error: `上传失败 (${uploadRes.status})` }));
-            throw new Error(errData.error || `视频上传失败 (${uploadRes.status})`);
+          if (!freshInitRes.ok) {
+            throw new Error('重新初始化上传失败');
           }
 
-          uploadData = await uploadRes.json();
+          const freshData = await freshInitRes.json();
+          proxyUploadUrl = freshData.uploadUrl;
+          if (!proxyUploadUrl) throw new Error('未获取到新的上传地址');
         }
+
+        setStatusText('正在通过服务端上传视频...');
+
+        // Single chunk through proxy (works for files within Vercel body limit)
+        const uploadRes = await fetch('/api/upload-chunk', {
+          method: 'POST',
+          headers: {
+            'x-upload-url': proxyUploadUrl,
+            'x-upload-offset': '0',
+            'x-upload-command': 'upload, finalize',
+          },
+          body: file,
+        });
+
+        if (!uploadRes.ok) {
+          const errData = await uploadRes.json().catch(() => ({ error: `上传失败 (${uploadRes.status})` }));
+          throw new Error(errData.error || `视频上传失败 (${uploadRes.status})`);
+        }
+
+        uploadData = await uploadRes.json();
       }
 
       const fileUri = (uploadData as Record<string, Record<string, string>>)?.file?.uri;
