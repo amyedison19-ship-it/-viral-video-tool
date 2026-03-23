@@ -33,27 +33,131 @@ export default function ExportTab({ analysis }: Props) {
   };
 
   const handleExportMarkdown = () => {
-    let md = `# 视频分析报告 - ${analysis.fileName}\n\n`;
-    md += `## 关键指标\n\n`;
-    md += `| 指标 | 数值 |\n|------|------|\n`;
-    md += `| 产品首次出现 | ${analysis.firstProductAppearance}秒 |\n`;
-    md += `| 产品露出时长 | ${analysis.productExposureDuration}秒 |\n`;
-    md += `| 产品露出占比 | ${analysis.productExposurePercent}% |\n`;
-    md += `| 视频总时长 | ${analysis.videoDuration}秒 |\n`;
-    md += `| 镜头数量 | ${analysis.shotCount}个 |\n\n`;
-    md += `## 优化建议\n\n${analysis.optimizationTip}\n\n`;
-    md += `## 分镜脚本\n\n`;
-    md += `| 镜头 | 时间 | 类型 | 画面描述 | 文案 |\n`;
-    md += `|------|------|------|----------|------|\n`;
-    analysis.shots.forEach(shot => {
-      md += `| #${shot.id} | ${shot.startTime}-${shot.endTime}s | ${shot.type} | ${shot.description.slice(0, 50)}... | ${shot.narration.slice(0, 30)}... |\n`;
-    });
+    // Generate HTML report with embedded thumbnails
+    const shotsHtml = analysis.shots.map(shot => {
+      const hasThumb = shot.thumbnailUrl && shot.thumbnailUrl.startsWith('data:');
+      return `
+      <tr>
+        <td style="padding:8px;border:1px solid #ddd;text-align:center;font-weight:bold">#${shot.id}</td>
+        <td style="padding:8px;border:1px solid #ddd;white-space:nowrap">${shot.startTime}-${shot.endTime}s</td>
+        <td style="padding:8px;border:1px solid #ddd">
+          <span style="display:inline-block;padding:2px 8px;border-radius:4px;background:${
+            shot.type === '产品展示' ? '#22c55e' :
+            shot.type === '开头钩子' ? '#eab308' :
+            shot.type === '使用场景' ? '#3b82f6' :
+            shot.type === '痛点放大' ? '#ef4444' :
+            shot.type === '效果对比' ? '#a855f7' :
+            shot.type === '行动引导' ? '#f97316' :
+            '#6b7280'
+          };color:white;font-size:12px">${shot.type}</span>
+        </td>
+        <td style="padding:8px;border:1px solid #ddd;max-width:300px">${shot.description}</td>
+        <td style="padding:8px;border:1px solid #ddd;text-align:center">
+          ${hasThumb ? `<img src="${shot.thumbnailUrl}" style="width:120px;height:auto;border-radius:4px" />` : '<span style="color:#999">无截图</span>'}
+        </td>
+        <td style="padding:8px;border:1px solid #ddd;max-width:250px">${shot.narration || '-'}</td>
+        <td style="padding:8px;border:1px solid #ddd;text-align:center">${shot.hasProduct ? '✓' : ''}</td>
+      </tr>`;
+    }).join('\n');
 
-    const blob = new Blob([md], { type: 'text/markdown' });
+    const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>视频分析报告 - ${analysis.fileName}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: #f5f5f5; color: #333; }
+  h1 { color: #1a1a2e; border-bottom: 3px solid #6366f1; padding-bottom: 10px; }
+  h2 { color: #4338ca; margin-top: 30px; }
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 16px 0; }
+  .metric { background: white; padding: 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .metric-label { font-size: 13px; color: #666; }
+  .metric-value { font-size: 20px; font-weight: bold; color: #1a1a2e; margin-top: 4px; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  th { background: #4338ca; color: white; padding: 10px 8px; text-align: left; font-size: 13px; }
+  .tip { background: #fef3c7; border-left: 4px solid #eab308; padding: 12px 16px; border-radius: 4px; margin: 16px 0; }
+  .product-info { background: white; padding: 16px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin: 16px 0; }
+</style>
+</head>
+<body>
+<h1>视频分析报告</h1>
+<p style="color:#666">文件名: ${analysis.fileName}</p>
+
+<h2>关键指标</h2>
+<div class="metrics">
+  <div class="metric"><div class="metric-label">视频总时长</div><div class="metric-value">${analysis.videoDuration}秒</div></div>
+  <div class="metric"><div class="metric-label">镜头数量</div><div class="metric-value">${analysis.shotCount}个</div></div>
+  <div class="metric"><div class="metric-label">产品首次出现</div><div class="metric-value">${analysis.firstProductAppearance}秒</div></div>
+  <div class="metric"><div class="metric-label">产品露出时长</div><div class="metric-value">${analysis.productExposureDuration}秒</div></div>
+  <div class="metric"><div class="metric-label">产品露出占比</div><div class="metric-value">${analysis.productExposurePercent}%</div></div>
+  <div class="metric"><div class="metric-label">综合评分</div><div class="metric-value">${analysis.overallScore}/100</div></div>
+</div>
+
+<div class="tip"><strong>优化建议：</strong>${analysis.optimizationTip}</div>
+
+${analysis.productAppearance ? `
+<h2>产品信息</h2>
+<div class="product-info">
+  <p><strong>产品名称：</strong>${analysis.productAppearance.name}</p>
+  <p><strong>品牌：</strong>${analysis.productAppearance.brand}</p>
+  <p><strong>品类：</strong>${analysis.productAppearance.category}</p>
+  <p><strong>颜色：</strong>${analysis.productAppearance.color}</p>
+  <p><strong>外观描述：</strong>${analysis.productAppearance.detailedDescription}</p>
+  ${analysis.productAppearance.distinguishingFeatures.length > 0 ? `<p><strong>区分特征：</strong>${analysis.productAppearance.distinguishingFeatures.join('；')}</p>` : ''}
+</div>` : ''}
+
+<h2>分镜脚本</h2>
+<table>
+  <thead>
+    <tr>
+      <th style="width:50px">镜头</th>
+      <th style="width:80px">时间</th>
+      <th style="width:80px">类型</th>
+      <th>画面描述</th>
+      <th style="width:140px">镜头截图</th>
+      <th>文案/口播</th>
+      <th style="width:50px">产品</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${shotsHtml}
+  </tbody>
+</table>
+
+${analysis.titleAnalysis?.title ? `
+<h2>标题分析</h2>
+<div class="product-info">
+  <p><strong>标题：</strong>${analysis.titleAnalysis.title}</p>
+  <p><strong>关键词：</strong>${analysis.titleAnalysis.keywords.join('、')}</p>
+  <p><strong>情绪触发：</strong>${analysis.titleAnalysis.emotionalTrigger}</p>
+  <p><strong>目标受众：</strong>${analysis.titleAnalysis.targetAudience}</p>
+</div>` : ''}
+
+${analysis.hookAnalysis?.hookType ? `
+<h2>钩子分析</h2>
+<div class="product-info">
+  <p><strong>钩子类型：</strong>${analysis.hookAnalysis.hookType}</p>
+  <p><strong>描述：</strong>${analysis.hookAnalysis.hookDescription}</p>
+  <p><strong>时长：</strong>${analysis.hookAnalysis.hookDuration}秒</p>
+  <p><strong>效果评估：</strong>${analysis.hookAnalysis.effectiveness}</p>
+</div>` : ''}
+
+${analysis.scriptAnalysis?.fullScript ? `
+<h2>完整文案</h2>
+<div class="product-info">
+  <p>${analysis.scriptAnalysis.fullScript}</p>
+  <p style="margin-top:8px;color:#666;font-size:13px">字数: ${analysis.scriptAnalysis.wordCount} | 语速: ${analysis.scriptAnalysis.paceWordsPerSecond}字/秒 | 风格: ${analysis.scriptAnalysis.toneStyle}</p>
+</div>` : ''}
+
+<p style="text-align:center;color:#999;margin-top:40px;font-size:12px">报告由 爆款短视频拆解工具 生成 | ${new Date().toLocaleDateString('zh-CN')}</p>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `report_${analysis.fileName}.md`;
+    a.download = `report_${analysis.fileName}.html`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -116,8 +220,8 @@ export default function ExportTab({ analysis }: Props) {
               <span className="text-2xl">📝</span>
             </div>
             <div>
-              <h3 className="font-medium">分析报告 (Markdown)</h3>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>适合分享和文档记录</p>
+              <h3 className="font-medium">分析报告 (HTML 含截图)</h3>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>包含镜头截图，适合分享和文档记录</p>
             </div>
           </div>
           <button className="px-4 py-2 rounded-lg text-sm font-medium" style={{ background: 'var(--accent-purple)' }}>
