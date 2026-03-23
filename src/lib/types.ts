@@ -7,6 +7,7 @@ export interface Shot {
   type: ShotType;
   description: string;
   narration: string;
+  narrationChinese: string;
   hasProduct: boolean;
   thumbnailUrl: string;
 }
@@ -64,12 +65,15 @@ export interface VideoAnalysis {
     rhythm: string;
   };
   scriptAnalysis: {
+    detectedLanguage: string;
     fullScript: string;
+    fullScriptChinese: string;
     wordCount: number;
     paceWordsPerSecond: number;
     toneStyle: string;
     keyPhrases: string[];
     callToAction: string;
+    callToActionChinese: string;
   };
   overallScore: number;
   strengths: string[];

@@ -9,9 +9,9 @@ interface Props {
 
 export default function StoryboardTab({ analysis }: Props) {
   const handleCopyTable = () => {
-    const header = '镜头\t时间\t类型\t画面描述\t文案/口播\t产品';
+    const header = '镜头\t时间\t类型\t画面描述\t文案/口播\t中文翻译\t产品';
     const rows = analysis.shots.map(shot =>
-      `#${shot.id}\t${shot.startTime}-${shot.endTime}s\t${shot.type}\t${shot.description}\t${shot.narration}\t${shot.hasProduct ? '是' : '否'}`
+      `#${shot.id}\t${shot.startTime}-${shot.endTime}s\t${shot.type}\t${shot.description}\t${shot.narration}\t${shot.narrationChinese || ''}\t${shot.hasProduct ? '是' : '否'}`
     );
     navigator.clipboard.writeText([header, ...rows].join('\n'));
     alert('表格已复制到剪贴板');
@@ -69,7 +69,14 @@ export default function StoryboardTab({ analysis }: Props) {
                       style={{ background: `hsl(${shot.id * 30}, 40%, 25%)` }}
                     />
                   </td>
-                  <td className="text-sm max-w-[300px]">{shot.narration}</td>
+                  <td className="text-sm max-w-[300px]">
+                    {shot.narration}
+                    {shot.narrationChinese && (
+                      <div className="mt-1 text-xs" style={{ color: 'var(--accent-blue)' }}>
+                        {shot.narrationChinese}
+                      </div>
+                    )}
+                  </td>
                   <td className="text-center">
                     {shot.hasProduct ? (
                       <span className="text-green-400 text-lg">✓</span>

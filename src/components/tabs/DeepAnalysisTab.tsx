@@ -194,13 +194,31 @@ export default function DeepAnalysisTab({ analysis }: Props) {
             文案脚本分析
           </h3>
 
+          {scriptAnalysis.detectedLanguage && scriptAnalysis.detectedLanguage !== '中文' && (
+            <div className="mb-4 px-3 py-1.5 rounded-lg inline-flex items-center gap-2 text-xs" style={{ background: 'rgba(59,130,246,0.1)', color: 'var(--accent-blue)' }}>
+              🌐 检测语言：{scriptAnalysis.detectedLanguage}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left: Full script */}
-            <div className="lg:col-span-2">
-              <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>推测完整口播文案</p>
-              <div className="p-4 rounded-lg text-sm leading-relaxed whitespace-pre-wrap" style={{ background: 'var(--bg-secondary)' }}>
-                {scriptAnalysis.fullScript}
+            <div className="lg:col-span-2 space-y-3">
+              <div>
+                <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  {scriptAnalysis.fullScriptChinese ? '原文口播文案' : '推测完整口播文案'}
+                </p>
+                <div className="p-4 rounded-lg text-sm leading-relaxed whitespace-pre-wrap" style={{ background: 'var(--bg-secondary)' }}>
+                  {scriptAnalysis.fullScript}
+                </div>
               </div>
+              {scriptAnalysis.fullScriptChinese && (
+                <div>
+                  <p className="text-xs mb-2" style={{ color: 'var(--accent-blue)' }}>中文翻译</p>
+                  <div className="p-4 rounded-lg text-sm leading-relaxed whitespace-pre-wrap" style={{ background: 'rgba(59,130,246,0.05)', border: '1px solid rgba(59,130,246,0.15)' }}>
+                    {scriptAnalysis.fullScriptChinese}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Right: Metrics */}
@@ -235,6 +253,11 @@ export default function DeepAnalysisTab({ analysis }: Props) {
                 <p className="text-sm p-2 rounded-lg" style={{ background: 'rgba(59,130,246,0.1)', color: 'var(--accent-blue)' }}>
                   {scriptAnalysis.callToAction}
                 </p>
+                {scriptAnalysis.callToActionChinese && (
+                  <p className="text-xs mt-1 p-2 rounded-lg" style={{ background: 'rgba(59,130,246,0.05)', color: 'var(--text-secondary)' }}>
+                    {scriptAnalysis.callToActionChinese}
+                  </p>
+                )}
               </div>
             </div>
           </div>

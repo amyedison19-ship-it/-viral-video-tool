@@ -18,9 +18,9 @@ export default function ExportTab({ analysis }: Props) {
   };
 
   const handleExportCSV = () => {
-    const header = '镜头,开始时间,结束时间,类型,画面描述,文案/口播,产品出现';
+    const header = '镜头,开始时间,结束时间,类型,画面描述,文案/口播,中文翻译,产品出现';
     const rows = analysis.shots.map(shot =>
-      `${shot.id},${shot.startTime},${shot.endTime},${shot.type},"${shot.description}","${shot.narration}",${shot.hasProduct ? '是' : '否'}`
+      `${shot.id},${shot.startTime},${shot.endTime},${shot.type},"${shot.description}","${shot.narration}","${shot.narrationChinese || ''}",${shot.hasProduct ? '是' : '否'}`
     );
     const csv = [header, ...rows].join('\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
@@ -55,7 +55,7 @@ export default function ExportTab({ analysis }: Props) {
         <td style="padding:8px;border:1px solid #ddd;text-align:center">
           ${hasThumb ? `<img src="${shot.thumbnailUrl}" style="width:120px;height:auto;border-radius:4px" />` : '<span style="color:#999">无截图</span>'}
         </td>
-        <td style="padding:8px;border:1px solid #ddd;max-width:250px">${shot.narration || '-'}</td>
+        <td style="padding:8px;border:1px solid #ddd;max-width:250px">${shot.narration || '-'}${shot.narrationChinese ? `<br/><span style="color:#3b82f6;font-size:12px">${shot.narrationChinese}</span>` : ''}</td>
         <td style="padding:8px;border:1px solid #ddd;text-align:center">${shot.hasProduct ? '✓' : ''}</td>
       </tr>`;
     }).join('\n');
@@ -143,9 +143,10 @@ ${analysis.hookAnalysis?.hookType ? `
 </div>` : ''}
 
 ${analysis.scriptAnalysis?.fullScript ? `
-<h2>完整文案</h2>
+<h2>完整文案${analysis.scriptAnalysis.detectedLanguage && analysis.scriptAnalysis.detectedLanguage !== '中文' ? ` (${analysis.scriptAnalysis.detectedLanguage})` : ''}</h2>
 <div class="product-info">
   <p>${analysis.scriptAnalysis.fullScript}</p>
+  ${analysis.scriptAnalysis.fullScriptChinese ? `<p style="margin-top:12px;padding-top:12px;border-top:1px solid #eee;color:#3b82f6"><strong>中文翻译：</strong>${analysis.scriptAnalysis.fullScriptChinese}</p>` : ''}
   <p style="margin-top:8px;color:#666;font-size:13px">字数: ${analysis.scriptAnalysis.wordCount} | 语速: ${analysis.scriptAnalysis.paceWordsPerSecond}字/秒 | 风格: ${analysis.scriptAnalysis.toneStyle}</p>
 </div>` : ''}
 

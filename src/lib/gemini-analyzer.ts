@@ -29,7 +29,8 @@ function buildAnalysisPrompt(fileName: string, metadata: VideoMetadata): string 
       "endTime": 2.0,
       "type": "开头钩子|痛点放大|产品展示|使用场景|效果对比|行动引导|信任背书|其他",
       "description": "画面详细描述（中文）",
-      "narration": "该镜头对应的文案/口播/字幕内容（中文，如果能听到或看到字幕请如实转录）",
+      "narration": "该镜头对应的文案/口播/字幕内容（原始语言，如实转录听到的语音或看到的字幕）",
+      "narrationChinese": "narration的中文翻译（如果原文已经是中文则留空字符串）",
       "hasProduct": false
     }
   ],
@@ -69,12 +70,15 @@ function buildAnalysisPrompt(fileName: string, metadata: VideoMetadata): string 
     "rhythm": "情绪节奏总结（如：先抑后扬、层层递进、高开高走、波浪式推进等）"
   },
   "scriptAnalysis": {
-    "fullScript": "完整的口播文案/字幕文案转录（如果有音频请尽可能准确转录）",
+    "detectedLanguage": "视频口播/字幕的原始语言（如：English、Español、中文、日本語、한국어等）",
+    "fullScript": "完整的口播文案/字幕文案转录（保留原始语言，如实转录）",
+    "fullScriptChinese": "fullScript的完整中文翻译（如果原文已经是中文则留空字符串）",
     "wordCount": 150,
     "paceWordsPerSecond": 4.5,
     "toneStyle": "文案整体风格（口语化/专业权威/情感共鸣/幽默搞笑/恐惧营销/种草安利等）",
     "keyPhrases": ["关键金句1", "关键金句2", "关键金句3"],
-    "callToAction": "结尾的行动引导话术（完整引用）"
+    "callToAction": "结尾的行动引导话术（原始语言完整引用）",
+    "callToActionChinese": "callToAction的中文翻译（如果原文已经是中文则留空字符串）"
   },
   "productAppearance": {
     "name": "产品的完整名称（品牌+型号，如 Sony LinkBuds Clip）",
@@ -97,10 +101,11 @@ function buildAnalysisPrompt(fileName: string, metadata: VideoMetadata): string 
 3. 时间戳：尽可能精确到0.1秒
 4. type 必须是：开头钩子、痛点放大、产品展示、使用场景、效果对比、行动引导、信任背书、其他
 5. hasProduct：当镜头中出现产品实物时为 true
-6. narration：如果视频有语音，请尽可能准确转录；如果有字幕，请提取字幕内容
-7. overallScore：0-100 分，从完播率、转化力、创意性、节奏感等维度综合评分
-8. productAppearance：请仔细观察视频中出现的产品，详细描述其外观特征（品牌、颜色、形状、材质、尺寸、配件等），这些信息将用于生成新视频时保持产品一致性
-9. 请像一个月薪5万的资深短视频运营专家一样，给出真正有价值、可执行的专业洞察`;
+6. narration：如果视频有语音，请用原始语言尽可能准确转录；如果有字幕，请提取原始字幕内容。narrationChinese：如果原始语言不是中文，请提供中文翻译；如果原文已是中文，留空字符串
+7. detectedLanguage：请识别视频口播/字幕的原始语言。fullScript保留原始语言转录，fullScriptChinese提供中文翻译（原文为中文时留空）
+8. overallScore：0-100 分，从完播率、转化力、创意性、节奏感等维度综合评分
+9. productAppearance：请仔细观察视频中出现的产品，详细描述其外观特征（品牌、颜色、形状、材质、尺寸、配件等），这些信息将用于生成新视频时保持产品一致性
+10. 请像一个月薪5万的资深短视频运营专家一样，给出真正有价值、可执行的专业洞察`;
 }
 
 function sanitizeJsonString(str: string): string {
@@ -198,6 +203,7 @@ function buildVideoAnalysis(
       type: normalizeShotType(s.type as string),
       description: String(s.description || ''),
       narration: String(s.narration || ''),
+      narrationChinese: String(s.narrationChinese || ''),
       hasProduct: Boolean(s.hasProduct),
       thumbnailUrl: `/api/placeholder/shot/${i + 1}`,
     })
@@ -277,12 +283,15 @@ function buildVideoAnalysis(
       rhythm: String(emotionCurve?.rhythm || ''),
     },
     scriptAnalysis: {
+      detectedLanguage: String(scriptAnalysis?.detectedLanguage || '中文'),
       fullScript: String(scriptAnalysis?.fullScript || ''),
+      fullScriptChinese: String(scriptAnalysis?.fullScriptChinese || ''),
       wordCount: Number(scriptAnalysis?.wordCount) || 0,
       paceWordsPerSecond: Number(scriptAnalysis?.paceWordsPerSecond) || 0,
       toneStyle: String(scriptAnalysis?.toneStyle || ''),
       keyPhrases: (scriptAnalysis?.keyPhrases as string[]) || [],
       callToAction: String(scriptAnalysis?.callToAction || ''),
+      callToActionChinese: String(scriptAnalysis?.callToActionChinese || ''),
     },
     overallScore: Number(p.overallScore) || 0,
     strengths: (p.strengths as string[]) || [],

@@ -154,6 +154,9 @@ export default function ShotsTab({ analysis }: Props) {
               <div>
                 <h4 className="text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>文案/口播</h4>
                 <p className="text-sm">{shot.narration}</p>
+                {shot.narrationChinese && (
+                  <p className="text-sm mt-1" style={{ color: 'var(--accent-blue)' }}>{shot.narrationChinese}</p>
+                )}
               </div>
             </div>
           </div>
