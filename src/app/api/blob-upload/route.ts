@@ -10,11 +10,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const body = (await request.json()) as HandleUploadBody;
 
   try {
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      console.error('BLOB_READ_WRITE_TOKEN is not set');
+      return NextResponse.json(
+        { error: 'Blob 存储未配置，请在 Vercel Dashboard 中将 Blob Store 连接到项目' },
+        { status: 500 }
+      );
+    }
+
     const jsonResponse = await handleUpload({
       body,
       request,
       onBeforeGenerateToken: async () => {
-        // Allow video uploads up to 100MB
         return {
           allowedContentTypes: ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm'],
           maximumSizeInBytes: 100 * 1024 * 1024,
@@ -28,8 +35,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(jsonResponse);
   } catch (error) {
     console.error('Blob upload error:', error);
+    const msg = error instanceof Error ? error.message : 'Blob 上传失败';
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Blob 上传失败' },
+      { error: msg.includes('token') ? '请在 Vercel 中将 Blob Store 连接到此项目（Connect Project）' : msg },
       { status: 400 }
     );
   }
