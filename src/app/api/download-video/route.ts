@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const maxDuration = 120;
+
 export async function GET(request: NextRequest) {
   try {
     const videoUrl = request.nextUrl.searchParams.get('url');

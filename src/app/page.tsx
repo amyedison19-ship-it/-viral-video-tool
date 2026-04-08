@@ -12,6 +12,7 @@ export default function Home() {
   const [errorMsg, setErrorMsg] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const [lastFile, setLastFile] = useState<File | null>(null);
+  const [tiktokUrl, setTiktokUrl] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Extract video metadata using HTML5 video element
@@ -285,6 +286,165 @@ export default function Home() {
     }
   }, [getVideoMetadata, captureAllFrames]);
 
+  const handleTikTokUrl = useCallback(async () => {
+    const url = tiktokUrl.trim();
+    if (!url) return;
+
+    setIsAnalyzing(true);
+    setProgress(0);
+    setErrorMsg('');
+    setStatusText('正在解析 TikTok 链接...');
+
+    let step = '解析链接';
+    try {
+      // Step 1: Resolve TikTok URL to direct download link
+      const resolveRes = await fetch('/api/download-tiktok', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+
+      if (!resolveRes.ok) {
+        const errData = await resolveRes.json().catch(() => ({ error: `解析失败 (${resolveRes.status})` }));
+        throw new Error(errData.error || '解析 TikTok 链接失败');
+      }
+
+      const { downloadUrl, fileName } = await resolveRes.json();
+      setProgress(15);
+
+      // Step 2: Download the video through our proxy
+      step = '下载视频';
+      setStatusText('正在从 TikTok 下载视频...');
+
+      const videoRes = await fetch(`/api/download-video?url=${encodeURIComponent(downloadUrl)}`);
+      if (!videoRes.ok) {
+        throw new Error(`视频下载失败 (${videoRes.status})`);
+      }
+
+      const videoBlob = await videoRes.blob();
+      setProgress(35);
+
+      // Create a File object from the blob
+      const file = new File([videoBlob], fileName || 'tiktok-video.mp4', { type: 'video/mp4' });
+      setLastFile(file);
+
+      // Step 3: Get video metadata
+      step = '读取视频信息';
+      setStatusText('正在读取视频信息...');
+      const metadata = await getVideoMetadata(file);
+      setProgress(40);
+
+      // Step 4: Upload to Gemini
+      step = '上传视频';
+      setStatusText('正在上传视频到 Gemini...');
+
+      let uploadData: Record<string, unknown> | null = null;
+
+      if (file.size <= 4 * 1024 * 1024) {
+        const initRes = await fetch('/api/init-upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileName: file.name, fileSize: file.size, mimeType: 'video/mp4' }),
+        });
+        if (!initRes.ok) {
+          const errData = await initRes.json().catch(() => ({ error: `初始化上传失败 (${initRes.status})` }));
+          throw new Error(errData.error || `初始化上传失败 (${initRes.status})`);
+        }
+        const { uploadUrl } = await initRes.json();
+        if (!uploadUrl) throw new Error('未获取到上传地址');
+
+        const uploadRes = await fetch('/api/upload-chunk', {
+          method: 'POST',
+          headers: {
+            'x-upload-url': uploadUrl,
+            'x-upload-offset': '0',
+            'x-upload-command': 'upload, finalize',
+          },
+          body: file,
+        });
+        if (!uploadRes.ok) {
+          const errData = await uploadRes.json().catch(() => ({ error: `上传失败 (${uploadRes.status})` }));
+          throw new Error(errData.error || `视频上传失败 (${uploadRes.status})`);
+        }
+        uploadData = await uploadRes.json();
+      } else {
+        setStatusText('正在上传视频到云存储...');
+        const { upload } = await import('@vercel/blob/client');
+        const blob = await upload(file.name, file, {
+          access: 'public',
+          handleUploadUrl: '/api/blob-upload',
+          onUploadProgress: (e) => {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            setProgress(40 + (pct / 100) * 15);
+          },
+        });
+        setStatusText('正在传输到 Gemini...');
+        const transferRes = await fetch('/api/upload-via-blob', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ blobUrl: blob.url, fileName: file.name, fileSize: file.size, mimeType: 'video/mp4' }),
+        });
+        if (!transferRes.ok) {
+          const errData = await transferRes.json().catch(() => ({ error: `传输失败 (${transferRes.status})` }));
+          throw new Error(errData.error || `视频传输到 Gemini 失败`);
+        }
+        uploadData = await transferRes.json();
+      }
+
+      const fileUri = (uploadData as Record<string, Record<string, string>>)?.file?.uri;
+      if (!fileUri) throw new Error('上传成功但未获取到文件 URI');
+      setProgress(60);
+
+      // Step 5: AI Analysis
+      step = 'AI分析';
+      setStatusText('Gemini AI 正在分析视频内容...');
+
+      let currentProgress = 60;
+      const interval = setInterval(() => {
+        currentProgress += Math.random() * 3;
+        if (currentProgress > 90) currentProgress = 90;
+        setProgress(currentProgress);
+      }, 500);
+
+      const analyzeRes = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileUri, mimeType: 'video/mp4', fileName: file.name,
+          duration: metadata.duration, width: metadata.width, height: metadata.height,
+        }),
+      });
+      clearInterval(interval);
+
+      const contentType = analyzeRes.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error(`分析接口返回非JSON (${analyzeRes.status})`);
+      }
+      const data = await analyzeRes.json();
+      if (!analyzeRes.ok) throw new Error(data.error || '分析失败，请重试');
+
+      setProgress(92);
+      setStatusText('正在截取视频帧...');
+      const result: VideoAnalysis = data;
+
+      const frames = await captureAllFrames(file, result.shots);
+      result.shots = result.shots.map((shot, i) => ({
+        ...shot,
+        thumbnailUrl: frames[i] || shot.thumbnailUrl,
+      }));
+
+      setProgress(100);
+      setStatusText('正在生成分析报告...');
+      await new Promise(resolve => setTimeout(resolve, 300));
+      setAnalysis(result);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : '分析失败，请重试';
+      setErrorMsg(`[${step}] ${msg}`);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [tiktokUrl, getVideoMetadata, captureAllFrames]);
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
@@ -368,6 +528,43 @@ export default function Home() {
             }}
           />
         </div>
+
+        {/* TikTok URL Input */}
+        {!isAnalyzing && (
+          <div className="w-full max-w-2xl mt-6">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="h-px flex-1" style={{ background: 'var(--border-color)' }} />
+              <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>或粘贴 TikTok 链接</span>
+              <div className="h-px flex-1" style={{ background: 'var(--border-color)' }} />
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={tiktokUrl}
+                onChange={(e) => setTiktokUrl(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && tiktokUrl.trim()) handleTikTokUrl(); }}
+                placeholder="粘贴 TikTok 视频链接，例如 https://www.tiktok.com/@user/video/..."
+                className="flex-1 px-4 py-3 rounded-xl text-sm outline-none transition-colors"
+                style={{
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-primary)',
+                }}
+              />
+              <button
+                onClick={handleTikTokUrl}
+                disabled={!tiktokUrl.trim()}
+                className="px-6 py-3 rounded-xl text-sm font-medium text-white transition-all shrink-0 disabled:opacity-40"
+                style={{ background: 'var(--accent-blue)' }}
+              >
+                解析分析
+              </button>
+            </div>
+            <p className="text-xs mt-2" style={{ color: 'var(--text-secondary)' }}>
+              支持 TikTok 视频链接，自动下载并分析
+            </p>
+          </div>
+        )}
 
         {/* Error message */}
         {errorMsg && (
