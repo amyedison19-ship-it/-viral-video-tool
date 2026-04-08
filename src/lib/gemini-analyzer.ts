@@ -349,13 +349,6 @@ export async function analyzeWithGeminiByUri(
   await waitForFileActive(fileUri, apiKey);
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
-    generationConfig: {
-      responseMimeType: 'application/json',
-    },
-  });
-
   const prompt = buildAnalysisPrompt(fileName, metadata);
 
   const contentParts = [
@@ -368,37 +361,51 @@ export async function analyzeWithGeminiByUri(
     { text: prompt },
   ];
 
-  // Try up to 3 times with retry on 503/overload and JSON parse failures
+  // Try multiple models with retry on 503/overload
+  const models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
   let lastError: Error | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const result = await model.generateContent(contentParts);
 
-      const text = result.response.text();
-      if (!text) {
-        throw new Error('Gemini 未返回分析结果');
-      }
+  for (const modelName of models) {
+    const model = genAI.getGenerativeModel({
+      model: modelName,
+      generationConfig: {
+        responseMimeType: 'application/json',
+      },
+    });
 
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const parsed = parseGeminiResponse(text);
-        return buildVideoAnalysis(parsed, fileName, metadata);
+        console.log(`Trying ${modelName} (attempt ${attempt + 1})...`);
+        const result = await model.generateContent(contentParts);
+
+        const text = result.response.text();
+        if (!text) {
+          throw new Error('Gemini 未返回分析结果');
+        }
+
+        try {
+          const parsed = parseGeminiResponse(text);
+          return buildVideoAnalysis(parsed, fileName, metadata);
+        } catch (e) {
+          lastError = e instanceof Error ? e : new Error(String(e));
+          console.warn(`${modelName} JSON parse attempt ${attempt + 1} failed, retrying...`);
+        }
       } catch (e) {
         lastError = e instanceof Error ? e : new Error(String(e));
-        console.warn(`Gemini JSON parse attempt ${attempt + 1} failed, retrying...`);
+        const msg = lastError.message || '';
+        const isOverload = msg.includes('503') || msg.includes('overloaded') || msg.includes('high demand') || msg.includes('Service Unavailable') || msg.includes('RESOURCE_EXHAUSTED');
+        if (isOverload) {
+          console.warn(`${modelName} overloaded (attempt ${attempt + 1}), ${attempt < 1 ? 'retrying...' : 'trying next model...'}`);
+          if (attempt < 1) {
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            continue;
+          }
+          break; // Move to next model
+        }
+        throw lastError;
       }
-    } catch (e) {
-      lastError = e instanceof Error ? e : new Error(String(e));
-      const msg = lastError.message || '';
-      // Retry on 503/overload/quota errors
-      if (msg.includes('503') || msg.includes('overloaded') || msg.includes('high demand') || msg.includes('Service Unavailable') || msg.includes('RESOURCE_EXHAUSTED')) {
-        const delay = (attempt + 1) * 5000; // 5s, 10s, 15s
-        console.warn(`Gemini 503/overload on attempt ${attempt + 1}, retrying in ${delay / 1000}s...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue;
-      }
-      throw lastError;
     }
   }
 
-  throw lastError || new Error('无法解析 Gemini 返回的 JSON 数据');
+  throw lastError || new Error('所有 Gemini 模型暂时不可用，请稍后重试');
 }
