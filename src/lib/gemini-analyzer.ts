@@ -394,10 +394,11 @@ export async function analyzeWithGeminiByUri(
         lastError = e instanceof Error ? e : new Error(String(e));
         const msg = lastError.message || '';
         const isOverload = msg.includes('503') || msg.includes('overloaded') || msg.includes('high demand') || msg.includes('Service Unavailable') || msg.includes('RESOURCE_EXHAUSTED');
-        if (isOverload) {
-          console.warn(`${modelName} overloaded (attempt ${attempt + 1}), ${attempt < 1 ? 'retrying...' : 'trying next model...'}`);
+        const isQuota = msg.includes('429') || msg.includes('Too Many Requests') || msg.includes('quota');
+        if (isOverload || isQuota) {
+          console.warn(`${modelName} ${isQuota ? 'quota exceeded' : 'overloaded'} (attempt ${attempt + 1}), ${attempt < 1 ? 'retrying...' : 'trying next model...'}`);
           if (attempt < 1) {
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            await new Promise(resolve => setTimeout(resolve, isQuota ? 10000 : 3000));
             continue;
           }
           break; // Move to next model
@@ -407,5 +408,13 @@ export async function analyzeWithGeminiByUri(
     }
   }
 
+  // Provide user-friendly error message
+  const errMsg = lastError?.message || '';
+  if (errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('Too Many Requests')) {
+    throw new Error('Gemini API 配额已用完，请等待 1-2 分钟后重试，或在 Google AI Studio 升级为付费计划');
+  }
+  if (errMsg.includes('503') || errMsg.includes('overloaded')) {
+    throw new Error('Gemini 服务器繁忙，请等待 1 分钟后点击"重新分析"重试');
+  }
   throw lastError || new Error('所有 Gemini 模型暂时不可用，请稍后重试');
 }
