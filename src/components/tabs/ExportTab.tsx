@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { VideoAnalysis } from '@/lib/types';
 
 interface Props {
@@ -8,7 +7,6 @@ interface Props {
 }
 
 export default function ExportTab({ analysis }: Props) {
-  const [pdfLoading, setPdfLoading] = useState(false);
 
   const handleExportJSON = () => {
     const blob = new Blob([JSON.stringify(analysis, null, 2)], { type: 'application/json' });
@@ -54,7 +52,7 @@ export default function ExportTab({ analysis }: Props) {
       ? analysis.shots.map(shot => {
           const hasThumb = shot.thumbnailUrl?.startsWith('data:');
           return `
-          <div style="border:1px solid #ddd;border-radius:8px;padding:12px;margin-bottom:10px;page-break-inside:avoid;break-inside:avoid;display:flex;gap:12px;align-items:flex-start">
+          <div class="shot-card" style="border:1px solid #ddd;border-radius:8px;padding:12px;margin-bottom:10px;page-break-inside:avoid;break-inside:avoid;display:flex;gap:12px;align-items:flex-start">
             ${hasThumb ? `<img src="${shot.thumbnailUrl}" style="width:160px;height:auto;border-radius:4px;flex-shrink:0" />` : ''}
             <div style="flex:1;min-width:0">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
@@ -204,46 +202,46 @@ ${strengthsSection}
     URL.revokeObjectURL(url);
   };
 
-  const handleExportPDF = async () => {
-    setPdfLoading(true);
-    try {
-      const html2pdf = (await import('html2pdf.js')).default;
+  const handleExportPDF = () => {
+    // Use browser's native print engine via iframe - it correctly handles page breaks
+    const htmlStr = buildReportHtml(true);
 
-      // Build PDF-optimized HTML (card layout instead of table)
-      const htmlStr = buildReportHtml(true);
-      const parser = new DOMParser();
-      const parsed = parser.parseFromString(htmlStr, 'text/html');
+    // Add print-specific styles to the HTML
+    const printHtml = htmlStr.replace('</style>', `
+  @media print {
+    body { margin: 0; padding: 15px; }
+    .shot-card { page-break-inside: avoid !important; break-inside: avoid !important; margin-bottom: 8px; }
+    .info-block { page-break-inside: avoid !important; break-inside: avoid !important; }
+    h2 { page-break-after: avoid !important; }
+    @page { size: A4 landscape; margin: 10mm; }
+  }
+</style>`);
 
-      const wrapper = document.createElement('div');
-      wrapper.style.cssText = 'width:1009px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;color:#333;padding:20px;background:white;';
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:1100px;height:800px;border:none;';
+    document.body.appendChild(iframe);
 
-      // Copy styles from parsed document
-      const styles = parsed.querySelectorAll('style');
-      styles.forEach(s => wrapper.appendChild(s.cloneNode(true)));
-      // Copy body content
-      wrapper.innerHTML += parsed.body.innerHTML;
-
-      document.body.appendChild(wrapper);
-
-      await html2pdf()
-        .set({
-          margin: [8, 8, 12, 8],
-          filename: `report_${analysis.fileName}.pdf`,
-          image: { type: 'jpeg', quality: 0.92 },
-          html2canvas: { scale: 2, useCORS: true, logging: false, width: 1009 },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
-          pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
-        } as Record<string, unknown>)
-        .from(wrapper)
-        .save();
-
-      document.body.removeChild(wrapper);
-    } catch (err) {
-      console.error('PDF export error:', err);
-      alert('PDF 导出失败: ' + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setPdfLoading(false);
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (!iframeDoc) {
+      document.body.removeChild(iframe);
+      alert('PDF 导出失败');
+      return;
     }
+
+    iframeDoc.open();
+    iframeDoc.write(printHtml);
+    iframeDoc.close();
+
+    // Wait for images to load, then print
+    iframe.onload = () => {
+      setTimeout(() => {
+        iframe.contentWindow?.print();
+        // Clean up after print dialog closes
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+        }, 1000);
+      }, 500);
+    };
   };
 
   return (
@@ -317,7 +315,7 @@ ${strengthsSection}
         <div
           className="rounded-xl p-6 flex items-center justify-between cursor-pointer transition-all hover:scale-[1.01]"
           style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
-          onClick={!pdfLoading ? handleExportPDF : undefined}
+          onClick={handleExportPDF}
         >
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.15)' }}>
@@ -325,15 +323,11 @@ ${strengthsSection}
             </div>
             <div>
               <h3 className="font-medium">分析报告 (PDF 含截图)</h3>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>横版 PDF，包含镜头截图，适合打印和存档</p>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>通过打印对话框保存为 PDF，截图不会被分页截断</p>
             </div>
           </div>
-          <button
-            className="px-4 py-2 rounded-lg text-sm font-medium"
-            style={{ background: pdfLoading ? '#666' : '#ef4444' }}
-            disabled={pdfLoading}
-          >
-            {pdfLoading ? '生成中...' : '下载'}
+          <button className="px-4 py-2 rounded-lg text-sm font-medium" style={{ background: '#ef4444' }}>
+            打印/保存PDF
           </button>
         </div>
       </div>
