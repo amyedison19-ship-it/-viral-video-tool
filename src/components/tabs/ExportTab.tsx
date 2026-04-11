@@ -9,6 +9,7 @@ interface Props {
 
 export default function ExportTab({ analysis }: Props) {
   const [pdfLoading, setPdfLoading] = useState(false);
+
   const handleExportJSON = () => {
     const blob = new Blob([JSON.stringify(analysis, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -34,32 +35,87 @@ export default function ExportTab({ analysis }: Props) {
     URL.revokeObjectURL(url);
   };
 
-  const buildReportHtml = () => {
-    const shotsHtml = analysis.shots.map(shot => {
-      const hasThumb = shot.thumbnailUrl && shot.thumbnailUrl.startsWith('data:');
-      return `
-      <tr style="page-break-inside:avoid;break-inside:avoid">
-        <td style="padding:8px;border:1px solid #ddd;text-align:center;font-weight:bold">#${shot.id}</td>
-        <td style="padding:8px;border:1px solid #ddd;white-space:nowrap">${shot.startTime}-${shot.endTime}s</td>
-        <td style="padding:8px;border:1px solid #ddd">
-          <span style="display:inline-block;padding:2px 8px;border-radius:4px;background:${
-            shot.type === '产品展示' ? '#22c55e' :
-            shot.type === '开头钩子' ? '#eab308' :
-            shot.type === '使用场景' ? '#3b82f6' :
-            shot.type === '痛点放大' ? '#ef4444' :
-            shot.type === '效果对比' ? '#a855f7' :
-            shot.type === '行动引导' ? '#f97316' :
-            '#6b7280'
-          };color:white;font-size:12px">${shot.type}</span>
-        </td>
-        <td style="padding:8px;border:1px solid #ddd;max-width:300px">${shot.description}</td>
-        <td style="padding:8px;border:1px solid #ddd;text-align:center">
-          ${hasThumb ? `<img src="${shot.thumbnailUrl}" style="width:120px;height:auto;border-radius:4px" />` : '<span style="color:#999">无截图</span>'}
-        </td>
-        <td style="padding:8px;border:1px solid #ddd;max-width:250px">${shot.narration || '-'}${shot.narrationChinese ? `<br/><span style="color:#3b82f6;font-size:12px">${shot.narrationChinese}</span>` : ''}</td>
-        <td style="padding:8px;border:1px solid #ddd;text-align:center">${shot.hasProduct ? '✓' : ''}</td>
-      </tr>`;
-    }).join('\n');
+  const buildReportHtml = (forPdf = false) => {
+    const shotTypeColor = (type: string) => {
+      switch (type) {
+        case '产品展示': return '#22c55e';
+        case '开头钩子': return '#eab308';
+        case '使用场景': return '#3b82f6';
+        case '痛点放大': return '#ef4444';
+        case '效果对比': return '#a855f7';
+        case '行动引导': return '#f97316';
+        default: return '#6b7280';
+      }
+    };
+
+    // For PDF: each shot is a separate card instead of a table row
+    // This avoids complex table layout issues in PDF rendering
+    const shotsContent = forPdf
+      ? analysis.shots.map(shot => {
+          const hasThumb = shot.thumbnailUrl?.startsWith('data:');
+          return `
+          <div style="border:1px solid #ddd;border-radius:8px;padding:12px;margin-bottom:10px;page-break-inside:avoid;break-inside:avoid;display:flex;gap:12px;align-items:flex-start">
+            ${hasThumb ? `<img src="${shot.thumbnailUrl}" style="width:160px;height:auto;border-radius:4px;flex-shrink:0" />` : ''}
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <strong>#${shot.id}</strong>
+                <span style="font-size:12px;color:#666">${shot.startTime}-${shot.endTime}s</span>
+                <span style="display:inline-block;padding:2px 8px;border-radius:4px;background:${shotTypeColor(shot.type)};color:white;font-size:11px">${shot.type}</span>
+                ${shot.hasProduct ? '<span style="color:#22c55e;font-size:12px">✓ 产品</span>' : ''}
+              </div>
+              <p style="margin:4px 0;font-size:13px;color:#333">${shot.description}</p>
+              ${shot.narration ? `<p style="margin:4px 0;font-size:12px;color:#555">${shot.narration}</p>` : ''}
+              ${shot.narrationChinese ? `<p style="margin:2px 0;font-size:12px;color:#3b82f6">${shot.narrationChinese}</p>` : ''}
+            </div>
+          </div>`;
+        }).join('\n')
+      : (() => {
+          const rows = analysis.shots.map(shot => {
+            const hasThumb = shot.thumbnailUrl?.startsWith('data:');
+            return `
+            <tr>
+              <td style="padding:8px;border:1px solid #ddd;text-align:center;font-weight:bold">#${shot.id}</td>
+              <td style="padding:8px;border:1px solid #ddd;white-space:nowrap">${shot.startTime}-${shot.endTime}s</td>
+              <td style="padding:8px;border:1px solid #ddd">
+                <span style="display:inline-block;padding:2px 8px;border-radius:4px;background:${shotTypeColor(shot.type)};color:white;font-size:12px">${shot.type}</span>
+              </td>
+              <td style="padding:8px;border:1px solid #ddd;max-width:300px">${shot.description}</td>
+              <td style="padding:8px;border:1px solid #ddd;text-align:center">
+                ${hasThumb ? `<img src="${shot.thumbnailUrl}" style="width:120px;height:auto;border-radius:4px" />` : '<span style="color:#999">无截图</span>'}
+              </td>
+              <td style="padding:8px;border:1px solid #ddd;max-width:250px">${shot.narration || '-'}${shot.narrationChinese ? `<br/><span style="color:#3b82f6;font-size:12px">${shot.narrationChinese}</span>` : ''}</td>
+              <td style="padding:8px;border:1px solid #ddd;text-align:center">${shot.hasProduct ? '✓' : ''}</td>
+            </tr>`;
+          }).join('\n');
+          return `<table>
+            <thead><tr>
+              <th style="width:50px">镜头</th>
+              <th style="width:80px">时间</th>
+              <th style="width:80px">类型</th>
+              <th>画面描述</th>
+              <th style="width:140px">镜头截图</th>
+              <th>文案/口播</th>
+              <th style="width:50px">产品</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>`;
+        })();
+
+    const scriptSection = analysis.scriptAnalysis?.fullScript ? `
+<h2>完整文案${analysis.scriptAnalysis.detectedLanguage && analysis.scriptAnalysis.detectedLanguage !== '中文' ? ` (${analysis.scriptAnalysis.detectedLanguage})` : ''}</h2>
+<div class="info-block">
+  <p>${analysis.scriptAnalysis.fullScript}</p>
+  ${analysis.scriptAnalysis.fullScriptChinese ? `<p style="margin-top:12px;padding-top:12px;border-top:1px solid #eee;color:#3b82f6"><strong>中文翻译：</strong>${analysis.scriptAnalysis.fullScriptChinese}</p>` : ''}
+  ${analysis.scriptAnalysis.callToAction ? `<p style="margin-top:12px;padding-top:12px;border-top:1px solid #eee"><strong>行动引导：</strong>${analysis.scriptAnalysis.callToAction}${analysis.scriptAnalysis.callToActionChinese ? `<br/><span style="color:#3b82f6">${analysis.scriptAnalysis.callToActionChinese}</span>` : ''}</p>` : ''}
+  <p style="margin-top:8px;color:#666;font-size:13px">字数: ${analysis.scriptAnalysis.wordCount} | 语速: ${analysis.scriptAnalysis.paceWordsPerSecond}字/秒 | 风格: ${analysis.scriptAnalysis.toneStyle}</p>
+</div>` : '';
+
+    const strengthsSection = (analysis.strengths?.length > 0 || analysis.weaknesses?.length > 0) ? `
+<h2>优劣势分析</h2>
+<div class="info-block">
+  ${analysis.strengths?.map(s => `<p style="color:#16a34a"><strong>✓</strong> ${s}</p>`).join('') || ''}
+  ${analysis.weaknesses?.map(w => `<p style="color:#dc2626"><strong>✗</strong> ${w}</p>`).join('') || ''}
+</div>` : '';
 
     return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -69,18 +125,15 @@ export default function ExportTab({ analysis }: Props) {
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: #fff; color: #333; }
   h1 { color: #1a1a2e; border-bottom: 3px solid #6366f1; padding-bottom: 10px; }
-  h2 { color: #4338ca; margin-top: 30px; }
-  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 16px 0; }
-  .metric { background: #f8f9fa; padding: 16px; border-radius: 8px; border: 1px solid #e5e7eb; }
+  h2 { color: #4338ca; margin-top: 30px; page-break-after: avoid; }
+  .metrics { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+  .metric { background: #f8f9fa; padding: 16px; border-radius: 8px; border: 1px solid #e5e7eb; flex: 1; min-width: 150px; }
   .metric-label { font-size: 13px; color: #666; }
   .metric-value { font-size: 20px; font-weight: bold; color: #1a1a2e; margin-top: 4px; }
-  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; }
-  tr { page-break-inside: avoid; break-inside: avoid; }
+  table { width: 100%; border-collapse: collapse; background: white; }
   th { background: #4338ca; color: white; padding: 10px 8px; text-align: left; font-size: 13px; }
   .tip { background: #fef3c7; border-left: 4px solid #eab308; padding: 12px 16px; border-radius: 4px; margin: 16px 0; }
-  .info-block { background: #f8f9fa; padding: 16px; border-radius: 8px; border: 1px solid #e5e7eb; margin: 16px 0; page-break-inside: avoid; break-inside: avoid; }
-  h2 { page-break-after: avoid; break-after: avoid; }
-  img { page-break-inside: avoid; break-inside: avoid; }
+  .info-block { background: #f8f9fa; padding: 16px; border-radius: 8px; border: 1px solid #e5e7eb; margin: 16px 0; page-break-inside: avoid; }
 </style>
 </head>
 <body>
@@ -111,22 +164,7 @@ ${analysis.productAppearance ? `
 </div>` : ''}
 
 <h2>分镜脚本</h2>
-<table>
-  <thead>
-    <tr>
-      <th style="width:50px">镜头</th>
-      <th style="width:80px">时间</th>
-      <th style="width:80px">类型</th>
-      <th>画面描述</th>
-      <th style="width:140px">镜头截图</th>
-      <th>文案/口播</th>
-      <th style="width:50px">产品</th>
-    </tr>
-  </thead>
-  <tbody>
-    ${shotsHtml}
-  </tbody>
-</table>
+${shotsContent}
 
 ${analysis.titleAnalysis?.title ? `
 <h2>标题分析</h2>
@@ -146,28 +184,17 @@ ${analysis.hookAnalysis?.hookType ? `
   <p><strong>效果评估：</strong>${analysis.hookAnalysis.effectiveness}</p>
 </div>` : ''}
 
-${analysis.scriptAnalysis?.fullScript ? `
-<h2>完整文案${analysis.scriptAnalysis.detectedLanguage && analysis.scriptAnalysis.detectedLanguage !== '中文' ? ` (${analysis.scriptAnalysis.detectedLanguage})` : ''}</h2>
-<div class="info-block">
-  <p>${analysis.scriptAnalysis.fullScript}</p>
-  ${analysis.scriptAnalysis.fullScriptChinese ? `<p style="margin-top:12px;padding-top:12px;border-top:1px solid #eee;color:#3b82f6"><strong>中文翻译：</strong>${analysis.scriptAnalysis.fullScriptChinese}</p>` : ''}
-  <p style="margin-top:8px;color:#666;font-size:13px">字数: ${analysis.scriptAnalysis.wordCount} | 语速: ${analysis.scriptAnalysis.paceWordsPerSecond}字/秒 | 风格: ${analysis.scriptAnalysis.toneStyle}</p>
-</div>` : ''}
+${scriptSection}
 
-${(analysis.strengths?.length > 0 || analysis.weaknesses?.length > 0) ? `
-<h2>优劣势分析</h2>
-<div class="info-block">
-  ${analysis.strengths?.map(s => `<p style="color:#16a34a">✓ ${s}</p>`).join('') || ''}
-  ${analysis.weaknesses?.map(w => `<p style="color:#dc2626">✗ ${w}</p>`).join('') || ''}
-</div>` : ''}
+${strengthsSection}
 
 <p style="text-align:center;color:#999;margin-top:40px;font-size:12px">报告由 爆款短视频拆解工具 生成 | ${new Date().toLocaleDateString('zh-CN')}</p>
 </body>
 </html>`;
   };
 
-  const handleExportMarkdown = () => {
-    const html = buildReportHtml();
+  const handleExportHTML = () => {
+    const html = buildReportHtml(false);
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -182,23 +209,24 @@ ${(analysis.strengths?.length > 0 || analysis.weaknesses?.length > 0) ? `
     try {
       const html2pdf = (await import('html2pdf.js')).default;
 
-      // Create a temporary container with the report HTML
+      // Build PDF-optimized HTML (card layout instead of table)
       const container = document.createElement('div');
-      container.innerHTML = buildReportHtml();
-      // Extract just the body content
+      container.innerHTML = buildReportHtml(true);
       const bodyContent = container.querySelector('body');
+
       const wrapper = document.createElement('div');
-      wrapper.style.cssText = 'font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif; color: #333; padding: 20px; background: white;';
+      // Fixed width matching A4 landscape minus margins (~267mm ≈ 1009px)
+      wrapper.style.cssText = 'width:1009px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;color:#333;padding:20px;background:white;position:absolute;left:-9999px;top:0;';
       wrapper.innerHTML = bodyContent?.innerHTML || container.innerHTML;
       document.body.appendChild(wrapper);
 
       await html2pdf()
         .set({
-          margin: [10, 10, 15, 10],
+          margin: [8, 8, 12, 8],
           filename: `report_${analysis.fileName}.pdf`,
-          image: { type: 'jpeg', quality: 0.95 },
-          html2canvas: { scale: 2, useCORS: true, logging: false },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+          image: { type: 'jpeg', quality: 0.92 },
+          html2canvas: { scale: 2, useCORS: true, logging: false, width: 1009 },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
           pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
         } as Record<string, unknown>)
         .from(wrapper)
@@ -264,7 +292,7 @@ ${(analysis.strengths?.length > 0 || analysis.weaknesses?.length > 0) ? `
         <div
           className="rounded-xl p-6 flex items-center justify-between cursor-pointer transition-all hover:scale-[1.01]"
           style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
-          onClick={handleExportMarkdown}
+          onClick={handleExportHTML}
         >
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ background: 'rgba(168,85,247,0.15)' }}>
@@ -292,7 +320,7 @@ ${(analysis.strengths?.length > 0 || analysis.weaknesses?.length > 0) ? `
             </div>
             <div>
               <h3 className="font-medium">分析报告 (PDF 含截图)</h3>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>专业 PDF 格式，包含镜头截图，适合打印和存档</p>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>横版 PDF，包含镜头截图，适合打印和存档</p>
             </div>
           </div>
           <button
