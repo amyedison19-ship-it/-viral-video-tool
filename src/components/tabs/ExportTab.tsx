@@ -210,14 +210,19 @@ ${strengthsSection}
       const html2pdf = (await import('html2pdf.js')).default;
 
       // Build PDF-optimized HTML (card layout instead of table)
-      const container = document.createElement('div');
-      container.innerHTML = buildReportHtml(true);
-      const bodyContent = container.querySelector('body');
+      const htmlStr = buildReportHtml(true);
+      const parser = new DOMParser();
+      const parsed = parser.parseFromString(htmlStr, 'text/html');
 
       const wrapper = document.createElement('div');
-      // Fixed width matching A4 landscape minus margins
-      wrapper.style.cssText = 'width:1009px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;color:#333;padding:20px;background:white;overflow:hidden;';
-      wrapper.innerHTML = bodyContent?.innerHTML || container.innerHTML;
+      wrapper.style.cssText = 'width:1009px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;color:#333;padding:20px;background:white;';
+
+      // Copy styles from parsed document
+      const styles = parsed.querySelectorAll('style');
+      styles.forEach(s => wrapper.appendChild(s.cloneNode(true)));
+      // Copy body content
+      wrapper.innerHTML += parsed.body.innerHTML;
+
       document.body.appendChild(wrapper);
 
       await html2pdf()
