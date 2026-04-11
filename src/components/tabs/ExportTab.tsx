@@ -38,7 +38,7 @@ export default function ExportTab({ analysis }: Props) {
     const shotsHtml = analysis.shots.map(shot => {
       const hasThumb = shot.thumbnailUrl && shot.thumbnailUrl.startsWith('data:');
       return `
-      <tr>
+      <tr style="page-break-inside:avoid;break-inside:avoid">
         <td style="padding:8px;border:1px solid #ddd;text-align:center;font-weight:bold">#${shot.id}</td>
         <td style="padding:8px;border:1px solid #ddd;white-space:nowrap">${shot.startTime}-${shot.endTime}s</td>
         <td style="padding:8px;border:1px solid #ddd">
@@ -75,9 +75,12 @@ export default function ExportTab({ analysis }: Props) {
   .metric-label { font-size: 13px; color: #666; }
   .metric-value { font-size: 20px; font-weight: bold; color: #1a1a2e; margin-top: 4px; }
   table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; }
+  tr { page-break-inside: avoid; break-inside: avoid; }
   th { background: #4338ca; color: white; padding: 10px 8px; text-align: left; font-size: 13px; }
   .tip { background: #fef3c7; border-left: 4px solid #eab308; padding: 12px 16px; border-radius: 4px; margin: 16px 0; }
-  .info-block { background: #f8f9fa; padding: 16px; border-radius: 8px; border: 1px solid #e5e7eb; margin: 16px 0; }
+  .info-block { background: #f8f9fa; padding: 16px; border-radius: 8px; border: 1px solid #e5e7eb; margin: 16px 0; page-break-inside: avoid; break-inside: avoid; }
+  h2 { page-break-after: avoid; break-after: avoid; }
+  img { page-break-inside: avoid; break-inside: avoid; }
 </style>
 </head>
 <body>
@@ -196,6 +199,7 @@ ${(analysis.strengths?.length > 0 || analysis.weaknesses?.length > 0) ? `
           image: { type: 'jpeg', quality: 0.95 },
           html2canvas: { scale: 2, useCORS: true, logging: false },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+          pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
         } as Record<string, unknown>)
         .from(wrapper)
         .save();
