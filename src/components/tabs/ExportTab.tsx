@@ -215,8 +215,8 @@ ${strengthsSection}
       const bodyContent = container.querySelector('body');
 
       const wrapper = document.createElement('div');
-      // Fixed width matching A4 landscape minus margins (~267mm ≈ 1009px)
-      wrapper.style.cssText = 'width:1009px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;color:#333;padding:20px;background:white;position:absolute;left:-9999px;top:0;';
+      // Fixed width matching A4 landscape minus margins
+      wrapper.style.cssText = 'width:1009px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;color:#333;padding:20px;background:white;overflow:hidden;';
       wrapper.innerHTML = bodyContent?.innerHTML || container.innerHTML;
       document.body.appendChild(wrapper);
 
