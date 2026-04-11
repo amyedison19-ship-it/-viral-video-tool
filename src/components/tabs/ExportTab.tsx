@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { VideoAnalysis } from '@/lib/types';
 
 interface Props {
@@ -7,6 +8,7 @@ interface Props {
 }
 
 export default function ExportTab({ analysis }: Props) {
+  const [pdfLoading, setPdfLoading] = useState(false);
   const handleExportJSON = () => {
     const blob = new Blob([JSON.stringify(analysis, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -163,6 +165,284 @@ ${analysis.scriptAnalysis?.fullScript ? `
     URL.revokeObjectURL(url);
   };
 
+  const handleExportPDF = async () => {
+    setPdfLoading(true);
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
+
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 14;
+      const contentWidth = pageWidth - margin * 2;
+      let y = 15;
+
+      // --- Helper: add text with page break check ---
+      const checkPage = (needed: number) => {
+        if (y + needed > doc.internal.pageSize.getHeight() - 15) {
+          doc.addPage();
+          y = 15;
+        }
+      };
+
+      // --- Title ---
+      doc.setFontSize(18);
+      doc.setTextColor(30, 30, 60);
+      doc.text('视频分析报告', margin, y);
+      y += 8;
+      doc.setFontSize(10);
+      doc.setTextColor(120, 120, 120);
+      doc.text(`文件: ${analysis.fileName}  |  生成时间: ${new Date().toLocaleDateString('zh-CN')}`, margin, y);
+      y += 4;
+      doc.setDrawColor(99, 102, 241);
+      doc.setLineWidth(0.8);
+      doc.line(margin, y, pageWidth - margin, y);
+      y += 10;
+
+      // --- Key Metrics ---
+      doc.setFontSize(13);
+      doc.setTextColor(67, 56, 202);
+      doc.text('关键指标', margin, y);
+      y += 7;
+
+      const metrics = [
+        ['视频时长', `${analysis.videoDuration}秒`],
+        ['镜头数量', `${analysis.shotCount}个`],
+        ['产品首现', `${analysis.firstProductAppearance}秒`],
+        ['产品露出', `${analysis.productExposureDuration}秒 (${analysis.productExposurePercent}%)`],
+        ['综合评分', `${analysis.overallScore}/100`],
+      ];
+
+      autoTable(doc, {
+        startY: y,
+        head: [['指标', '数值']],
+        body: metrics,
+        theme: 'grid',
+        styles: { fontSize: 9, cellPadding: 3 },
+        headStyles: { fillColor: [99, 102, 241], textColor: 255 },
+        margin: { left: margin, right: margin },
+        tableWidth: contentWidth / 2,
+      });
+      y = ((doc as unknown as Record<string, Record<string, number>>).lastAutoTable?.finalY ?? y + 30) + 8;
+
+      // --- Optimization Tip ---
+      checkPage(20);
+      doc.setFillColor(254, 243, 199);
+      doc.roundedRect(margin, y, contentWidth, 14, 2, 2, 'F');
+      doc.setFontSize(9);
+      doc.setTextColor(120, 100, 0);
+      doc.text(`优化建议: ${analysis.optimizationTip}`, margin + 4, y + 5, { maxWidth: contentWidth - 8 });
+      y += 18;
+
+      // --- Product Info ---
+      if (analysis.productAppearance) {
+        checkPage(40);
+        doc.setFontSize(13);
+        doc.setTextColor(67, 56, 202);
+        doc.text('产品信息', margin, y);
+        y += 7;
+
+        const prodRows = [
+          ['产品名称', analysis.productAppearance.name],
+          ['品牌', analysis.productAppearance.brand],
+          ['品类', analysis.productAppearance.category],
+          ['颜色', analysis.productAppearance.color],
+          ['外观描述', analysis.productAppearance.detailedDescription],
+        ];
+        if (analysis.productAppearance.distinguishingFeatures.length > 0) {
+          prodRows.push(['区分特征', analysis.productAppearance.distinguishingFeatures.join('；')]);
+        }
+
+        autoTable(doc, {
+          startY: y,
+          body: prodRows,
+          theme: 'plain',
+          styles: { fontSize: 9, cellPadding: 3 },
+          columnStyles: { 0: { fontStyle: 'bold', cellWidth: 30 } },
+          margin: { left: margin, right: margin },
+        });
+        y = ((doc as unknown as Record<string, Record<string, number>>).lastAutoTable?.finalY ?? y + 30) + 8;
+      }
+
+      // --- Storyboard with Thumbnails ---
+      checkPage(20);
+      doc.setFontSize(13);
+      doc.setTextColor(67, 56, 202);
+      doc.text('分镜脚本', margin, y);
+      y += 7;
+
+      // Build table rows with image placeholders
+      const shotRows: (string | { content: string })[][] = [];
+      const imagePositions: { row: number; dataUrl: string }[] = [];
+
+      for (let i = 0; i < analysis.shots.length; i++) {
+        const shot = analysis.shots[i];
+        const hasThumb = shot.thumbnailUrl?.startsWith('data:');
+        if (hasThumb) {
+          imagePositions.push({ row: i, dataUrl: shot.thumbnailUrl });
+        }
+        shotRows.push([
+          `#${shot.id}`,
+          `${shot.startTime}-${shot.endTime}s`,
+          shot.type,
+          shot.description,
+          hasThumb ? '' : '无截图',
+          shot.narration ? (shot.narrationChinese ? `${shot.narration}\n[中文] ${shot.narrationChinese}` : shot.narration) : '-',
+        ]);
+      }
+
+      autoTable(doc, {
+        startY: y,
+        head: [['镜头', '时间', '类型', '画面描述', '截图', '文案']],
+        body: shotRows,
+        theme: 'grid',
+        styles: { fontSize: 7.5, cellPadding: 2, minCellHeight: 20, valign: 'middle' },
+        headStyles: { fillColor: [99, 102, 241], textColor: 255, fontSize: 8 },
+        columnStyles: {
+          0: { cellWidth: 10, halign: 'center' },
+          1: { cellWidth: 18 },
+          2: { cellWidth: 18 },
+          3: { cellWidth: 45 },
+          4: { cellWidth: 25, halign: 'center' },
+          5: { cellWidth: contentWidth - 116 },
+        },
+        margin: { left: margin, right: margin },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        didDrawCell: (data: any) => {
+          if (data.section === 'body' && data.column.index === 4) {
+            const rowIndex = data.row.index;
+            const imgEntry = imagePositions.find(p => p.row === rowIndex);
+            if (imgEntry) {
+              const cell = data.cell;
+              try {
+                doc.addImage(imgEntry.dataUrl, 'JPEG', cell.x + 1, cell.y + 1, cell.width - 2, cell.height - 2);
+              } catch { /* skip broken images */ }
+            }
+          }
+        },
+      });
+      y = ((doc as unknown as Record<string, Record<string, number>>).lastAutoTable?.finalY ?? y + 30) + 8;
+
+      // --- Title Analysis ---
+      if (analysis.titleAnalysis?.title) {
+        checkPage(35);
+        doc.setFontSize(13);
+        doc.setTextColor(67, 56, 202);
+        doc.text('标题分析', margin, y);
+        y += 7;
+        autoTable(doc, {
+          startY: y,
+          body: [
+            ['标题', analysis.titleAnalysis.title],
+            ['关键词', analysis.titleAnalysis.keywords.join('、')],
+            ['情绪触发', analysis.titleAnalysis.emotionalTrigger],
+            ['目标受众', analysis.titleAnalysis.targetAudience],
+          ],
+          theme: 'plain',
+          styles: { fontSize: 9, cellPadding: 3 },
+          columnStyles: { 0: { fontStyle: 'bold', cellWidth: 30 } },
+          margin: { left: margin, right: margin },
+        });
+        y = ((doc as unknown as Record<string, Record<string, number>>).lastAutoTable?.finalY ?? y + 22) + 8;
+      }
+
+      // --- Hook Analysis ---
+      if (analysis.hookAnalysis?.hookType) {
+        checkPage(35);
+        doc.setFontSize(13);
+        doc.setTextColor(67, 56, 202);
+        doc.text('钩子分析', margin, y);
+        y += 7;
+        autoTable(doc, {
+          startY: y,
+          body: [
+            ['钩子类型', analysis.hookAnalysis.hookType],
+            ['描述', analysis.hookAnalysis.hookDescription],
+            ['时长', `${analysis.hookAnalysis.hookDuration}秒`],
+            ['效果评估', analysis.hookAnalysis.effectiveness],
+          ],
+          theme: 'plain',
+          styles: { fontSize: 9, cellPadding: 3 },
+          columnStyles: { 0: { fontStyle: 'bold', cellWidth: 30 } },
+          margin: { left: margin, right: margin },
+        });
+        y = ((doc as unknown as Record<string, Record<string, number>>).lastAutoTable?.finalY ?? y + 22) + 8;
+      }
+
+      // --- Script ---
+      if (analysis.scriptAnalysis?.fullScript) {
+        checkPage(30);
+        doc.setFontSize(13);
+        doc.setTextColor(67, 56, 202);
+        const lang = analysis.scriptAnalysis.detectedLanguage && analysis.scriptAnalysis.detectedLanguage !== '中文'
+          ? ` (${analysis.scriptAnalysis.detectedLanguage})` : '';
+        doc.text(`完整文案${lang}`, margin, y);
+        y += 7;
+
+        const scriptRows: string[][] = [
+          ['原文', analysis.scriptAnalysis.fullScript],
+        ];
+        if (analysis.scriptAnalysis.fullScriptChinese) {
+          scriptRows.push(['中文翻译', analysis.scriptAnalysis.fullScriptChinese]);
+        }
+        scriptRows.push(['风格/语速', `${analysis.scriptAnalysis.toneStyle} | ${analysis.scriptAnalysis.wordCount}字 | ${analysis.scriptAnalysis.paceWordsPerSecond}字/秒`]);
+        if (analysis.scriptAnalysis.callToAction) {
+          scriptRows.push(['行动引导', analysis.scriptAnalysis.callToAction + (analysis.scriptAnalysis.callToActionChinese ? `\n${analysis.scriptAnalysis.callToActionChinese}` : '')]);
+        }
+
+        autoTable(doc, {
+          startY: y,
+          body: scriptRows,
+          theme: 'plain',
+          styles: { fontSize: 9, cellPadding: 3 },
+          columnStyles: { 0: { fontStyle: 'bold', cellWidth: 30 } },
+          margin: { left: margin, right: margin },
+        });
+        y = ((doc as unknown as Record<string, Record<string, number>>).lastAutoTable?.finalY ?? y + 22) + 8;
+      }
+
+      // --- Strengths & Weaknesses ---
+      checkPage(30);
+      if (analysis.strengths?.length > 0 || analysis.weaknesses?.length > 0) {
+        doc.setFontSize(13);
+        doc.setTextColor(67, 56, 202);
+        doc.text('优劣势分析', margin, y);
+        y += 7;
+        const swRows: string[][] = [];
+        analysis.strengths?.forEach(s => swRows.push(['✓ 优势', s]));
+        analysis.weaknesses?.forEach(w => swRows.push(['✗ 不足', w]));
+        autoTable(doc, {
+          startY: y,
+          body: swRows,
+          theme: 'plain',
+          styles: { fontSize: 9, cellPadding: 3 },
+          columnStyles: { 0: { fontStyle: 'bold', cellWidth: 25 } },
+          margin: { left: margin, right: margin },
+        });
+      }
+
+      // --- Footer ---
+      const pageCount = doc.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(150, 150, 150);
+        doc.text(
+          `爆款短视频拆解工具 | 第 ${i}/${pageCount} 页`,
+          pageWidth / 2, doc.internal.pageSize.getHeight() - 8,
+          { align: 'center' }
+        );
+      }
+
+      doc.save(`report_${analysis.fileName}.pdf`);
+    } catch (err) {
+      console.error('PDF export error:', err);
+      alert('PDF 导出失败: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
   return (
     <div className="max-w-2xl mx-auto">
       <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
@@ -210,7 +490,7 @@ ${analysis.scriptAnalysis?.fullScript ? `
           </button>
         </div>
 
-        {/* Markdown Export */}
+        {/* HTML Export */}
         <div
           className="rounded-xl p-6 flex items-center justify-between cursor-pointer transition-all hover:scale-[1.01]"
           style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
@@ -227,6 +507,30 @@ ${analysis.scriptAnalysis?.fullScript ? `
           </div>
           <button className="px-4 py-2 rounded-lg text-sm font-medium" style={{ background: 'var(--accent-purple)' }}>
             下载
+          </button>
+        </div>
+
+        {/* PDF Export */}
+        <div
+          className="rounded-xl p-6 flex items-center justify-between cursor-pointer transition-all hover:scale-[1.01]"
+          style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+          onClick={!pdfLoading ? handleExportPDF : undefined}
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.15)' }}>
+              <span className="text-2xl">📄</span>
+            </div>
+            <div>
+              <h3 className="font-medium">分析报告 (PDF 含截图)</h3>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>专业 PDF 格式，包含镜头截图，适合打印和存档</p>
+            </div>
+          </div>
+          <button
+            className="px-4 py-2 rounded-lg text-sm font-medium"
+            style={{ background: pdfLoading ? '#666' : '#ef4444' }}
+            disabled={pdfLoading}
+          >
+            {pdfLoading ? '生成中...' : '下载'}
           </button>
         </div>
       </div>
