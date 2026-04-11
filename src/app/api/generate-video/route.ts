@@ -25,7 +25,9 @@ export async function POST(request: NextRequest) {
 
     // Determine if we should use i2v (image-to-video) or t2v (text-to-video)
     const imageUrls: string[] = Array.isArray(referenceImageUrls) ? referenceImageUrls : [];
-    const useI2V = imageUrls.length > 0;
+    // Seedance i2v only supports 1 reference image - use the first one
+    const refImage = imageUrls.length > 0 ? imageUrls[0] : null;
+    const useI2V = !!refImage;
 
     // Select model ID based on user choice and mode
     let modelId: string;
@@ -49,19 +51,17 @@ export async function POST(request: NextRequest) {
       },
     ];
 
-    // Add reference images for i2v mode (multiple images supported)
-    if (useI2V) {
-      for (const imgUrl of imageUrls) {
-        content.push({
-          type: 'image_url',
-          image_url: {
-            url: imgUrl,
-          },
-        });
-      }
+    // Add single reference image for i2v mode
+    if (useI2V && refImage) {
+      content.push({
+        type: 'image_url',
+        image_url: {
+          url: refImage,
+        },
+      });
     }
 
-    console.log(`Video generation mode: ${useI2V ? `i2v (${imageUrls.length} images)` : 't2v (text-to-video)'}, model: ${modelId}`);
+    console.log(`Video generation mode: ${useI2V ? 'i2v (1 image)' : 't2v (text-to-video)'}, model: ${modelId}`);
 
     const response = await fetch(`${ARK_API_BASE}/contents/generations/tasks`, {
       method: 'POST',

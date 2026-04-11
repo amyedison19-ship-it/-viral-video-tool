@@ -179,7 +179,8 @@ export default function AIVideoTab({ analysis, latestSameProductScript }: Props)
       const data = await res.json();
 
       if (!res.ok) {
-        setErrorMsg(data.error || '请求失败');
+        const detail = data.details ? ` (${typeof data.details === 'string' ? data.details.slice(0, 200) : JSON.stringify(data.details).slice(0, 200)})` : '';
+        setErrorMsg((data.error || '请求失败') + detail);
         setIsGenerating(false);
         return;
       }
